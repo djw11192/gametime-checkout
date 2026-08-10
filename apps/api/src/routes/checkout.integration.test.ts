@@ -65,7 +65,7 @@ const setInventory = (availableQuantity: number) =>
 const setPaymentMode = (mode: string, latencyMs?: number) =>
   request(app).post("/api/_scenario/payment-mode").send({ mode, latencyMs }).expect(200);
 
-/* ── the flow the prompt asks for ─────────────────────────────────────────── */
+/* ── cross-surface handoff ────────────────────────────────────────────────── */
 
 describe("cross-surface continuity", () => {
   it("creates on web, resumes on mobile, and completes from mobile", async () => {
@@ -96,24 +96,12 @@ describe("cross-surface continuity", () => {
     expect(container.orders.count()).toBe(1);
   });
 
-  it("records the resume in analytics with the surface handoff and the gap", async () => {
-    const created = await createSession("web");
-    clock.advance(3 * 60 * 1000);
-    await readSession(created.session.id, "mobile");
-
-    const funnel = container.analytics.funnel();
-    expect(funnel.resumed).toBe(1);
-    expect(funnel.resumedCrossSurface).toBe(1);
-    expect(funnel.medianResumeGapSeconds).toBe(180);
-  });
-
-  it("does not count a refresh on the same surface as a resume", async () => {
+  it("does not churn the version when a surface merely refreshes", async () => {
+    // A bumped version would 409 other in-flight requests on the same session.
     const created = await createSession("web");
     clock.advance(2_000);
     await readSession(created.session.id, "web");
 
-    expect(container.analytics.funnel().resumed).toBe(0);
-    // ...and it does not churn the version, which would 409 other in-flight requests.
     expect((await readSession(created.session.id)).session.version).toBe(0);
   });
 });
@@ -144,8 +132,6 @@ describe("duplicate order prevention", () => {
     expect(loser.body.error.details.startedBySurface).toBeTruthy();
     // The 409 carries the current view, so the client reconciles without a refetch.
     expect(loser.body.session).toBeTruthy();
-
-    expect(container.analytics.funnel().duplicatesBlocked).toBe(1);
   });
 
   it("replaying the same Idempotency-Key returns the same order without charging again", async () => {
@@ -182,11 +168,10 @@ describe("duplicate order prevention", () => {
   });
 
   it("takes the seats once even if it reaches the order store twice", async () => {
-    // The last-resort branch, reached here by planting an order the way a
-    // bypassed gate would. What matters is what happened *before* the store
-    // refused: inventory used to be committed first, so the fan's two seats came
-    // out of the listing a second time on the way to being told "you already
-    // have this order".
+    // The last-resort branch, reached by planting an order the way a bypassed
+    // gate would. What matters is what happens *before* the store refuses: the
+    // seats must not come out of the listing a second time on the way to being
+    // told "you already have this order".
     await setPaymentMode("pending");
     const created = await createSession("web", 2);
     await complete(created.session.id, { hash: created.liveQuote!.hash, key: "key-3ds" }).expect(202);
@@ -271,7 +256,6 @@ describe("price changes while the fan is away", () => {
 
     // Charged the new price, and only the new price.
     expect(done.body.order.totalCents).toBe(originalTotal + 4_600);
-    expect(container.analytics.funnel().driftAccepted).toBe(1);
   });
 
   it("reports a price drop as drift too, and still requires acceptance", async () => {
@@ -424,7 +408,6 @@ describe("expiration", () => {
 
     expect(await container.checkout.sweepExpired()).toBe(1);
     expect((await container.sessions.get(created.session.id))?.status).toBe("expired");
-    expect(container.analytics.funnel().expired).toBe(1);
   });
 
   it("leaves a session alone while a submit could still be in flight", async () => {
@@ -674,6 +657,18 @@ describe("losing a compare-and-swap", () => {
 
     expect(res.status).toBe(201);
     expect(container.orders.count()).toBe(1);
+  });
+
+  it("still answers a read whose lazy expiry lost to the sweeper", async () => {
+    // Both the sweeper and a read expire on their own. If the sweeper's write
+    // lands first, the read's `EXPIRE` is refused — and a plain GET must not
+    // turn that into a 409.
+    const created = await createSession();
+    clock.advance(SESSION_TTL_MS + COMPLETION_GRACE_MS);
+    interpose(() => container.checkout.sweepExpired());
+
+    const res = await request(app).get(`/api/checkout/sessions/${created.session.id}`).expect(200);
+    expect(res.body.session.session.status).toBe("expired");
   });
 
   it("reports what actually changed rather than that something did", async () => {

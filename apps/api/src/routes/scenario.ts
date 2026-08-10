@@ -4,29 +4,28 @@ import {
   SetInventoryRequestSchema,
   SetPaymentModeRequestSchema,
   SetPriceRequestSchema,
+  SettlePendingRequestSchema,
 } from "@gametime/contracts";
 import type { Container } from "../container";
 import { ApiError } from "../domain/errors";
-import { parseBody } from "./validate";
+import { parseBody } from "../lib/validate";
 
 /**
- * The levers behind `/demo`. These stand in for things that in production
- * happen because the world moved: a seller repricing, a listing selling on
- * another channel, a processor having a bad afternoon.
- *
- * Exposing them as an explicit dev-only API — rather than random jitter inside
- * the fakes — is what makes the state transitions reproducible enough to demo
- * and to assert on. Mounted only when NODE_ENV !== "production".
+ * The levers behind `/demo`, standing in for things that in production happen
+ * because the world moved: a seller repricing, a listing selling on another
+ * channel, a processor having a bad afternoon. An explicit API rather than
+ * random jitter inside the fakes, so the transitions are reproducible enough to
+ * demo and to assert on. Mounted only when NODE_ENV !== "production".
  */
 export function scenarioRouter(container: Container): Router {
   const router = Router();
-  const { inventory, payments, checkout, analytics, clock, sessions } = container;
+  const { inventory, payments, checkout, clock, sessions } = container;
 
   /** Move a listing's price; every open session on it is pushed the new quote. */
   router.post("/price", async (req, res) => {
     const body = parseBody(SetPriceRequestSchema, req.body);
     const listing = inventory.applyPriceDelta(body.listingId, body.deltaCents);
-    if (!listing) throw new ApiError("INVENTORY_UNAVAILABLE", "Listing not found.");
+    if (!listing) throw new ApiError("NOT_FOUND", "Listing not found.");
     res.json({ listing, sessionsNotified: await checkout.notifyListingChanged(body.listingId) });
   });
 
@@ -34,7 +33,7 @@ export function scenarioRouter(container: Container): Router {
   router.post("/inventory", async (req, res) => {
     const body = parseBody(SetInventoryRequestSchema, req.body);
     const listing = inventory.setAvailableQuantity(body.listingId, body.availableQuantity);
-    if (!listing) throw new ApiError("INVENTORY_UNAVAILABLE", "Listing not found.");
+    if (!listing) throw new ApiError("NOT_FOUND", "Listing not found.");
     res.json({ listing, sessionsNotified: await checkout.notifyListingChanged(body.listingId) });
   });
 
@@ -59,21 +58,10 @@ export function scenarioRouter(container: Container): Router {
     res.json({ session: await checkout.getSession(body.sessionId) });
   });
 
-  /** Simulates the PSP webhook for an authorization left pending. */
+  /** Simulates the processor's webhook for an authorization left pending. */
   router.post("/settle-pending", async (req, res) => {
-    const sessionId = String(req.body?.sessionId ?? "");
-    const view = await checkout.settlePendingAuthorization(sessionId, req.body?.approve !== false);
-    res.json({ session: view });
-  });
-
-  router.post("/reset", async (_req, res) => {
-    await container.reset();
-    res.json({ ok: true });
-  });
-
-  router.post("/reset-analytics", (_req, res) => {
-    analytics.clear();
-    res.json({ ok: true });
+    const body = parseBody(SettlePendingRequestSchema, req.body);
+    res.json({ session: await checkout.settlePendingAuthorization(body.sessionId, body.approve) });
   });
 
   return router;

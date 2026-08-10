@@ -1,19 +1,12 @@
 import { Card, Skeleton } from "@/components/ui";
 
 /**
- * Shown the instant a listing link is clicked, instead of leaving the previous
- * page on screen while the server renders.
- *
  * Without this file the router has nothing to show during navigation, so a
  * `force-dynamic` route reads as an unresponsive click no matter how fast the
- * server is. It also restores prefetching: `<Link>` cannot prefetch a dynamic
- * route's content, but it can prefetch this boundary, so the transition starts
- * immediately rather than at the end of a round trip.
+ * server is. It also restores prefetching of the boundary itself.
  *
- * Deliberately not applied to `/checkout/[sessionId]` — that route's whole
- * point is a complete summary in the first paint, and a route-level fallback
- * would replace it with a skeleton. Feedback for that step lives on the submit
- * button instead.
+ * Not applied to `/checkout/[sessionId]`: that route's point is a complete
+ * summary in the first paint, which a route-level fallback would replace.
  */
 export default function LoadingEvent() {
   return (

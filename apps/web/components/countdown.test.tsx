@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 import { Countdown } from "./countdown";
 
 /**
- * ── What the fan sees before hydration ────────────────────────────────────
+ * What the fan sees before hydration.
  *
  * These assert against `renderToString` on purpose. The countdown is the one
  * piece of the checkout that a `useState` + `useEffect` implementation would

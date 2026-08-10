@@ -10,11 +10,8 @@ export class DuplicateOrderError extends Error {
  * Orders, with a uniqueness invariant on `sessionId` — in Postgres this is
  * `UNIQUE (session_id)` and the throw stands in for the constraint violation.
  *
- * This is the last of the four duplicate-prevention layers and the only true
- * invariant. The idempotency key, the CAS lock, and terminal-state idempotence
- * are all things a caller has to use correctly; this one holds even if every
- * one of them is bypassed, which is what you want from the layer standing
- * directly in front of "money moves".
+ * The last of the four duplicate-prevention layers and the only one a caller
+ * cannot get wrong: it holds even if the other three are bypassed.
  */
 export class InMemoryOrderStore {
   private orders = new Map<string, Order>();

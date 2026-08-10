@@ -1,12 +1,9 @@
 import type { z } from "zod";
-import { ApiError } from "../domain/errors.js";
+import { ApiError } from "../domain/errors";
 
 /**
- * Parse an inbound body against the shared contract schema.
- *
- * Every request crosses this boundary. The types in `@gametime/contracts` are
- * only trustworthy on the server because this runs — a TypeScript type asserts
- * nothing about bytes arriving off a socket.
+ * Parse an inbound body against the shared contract schema. The types in
+ * `@gametime/contracts` are only trustworthy on the server because this runs.
  */
 export function parseBody<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {
   const result = schema.safeParse(body);

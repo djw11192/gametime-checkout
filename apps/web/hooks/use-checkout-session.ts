@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckoutSessionViewSchema,
@@ -23,21 +23,13 @@ const SSE_EVENTS: SseEventType[] = [
 ];
 
 /**
- * The single source of live checkout state on the client.
+ * The single source of live checkout state on the client. `initialData` is the
+ * view the Server Component already rendered, so there is no fetch on mount;
+ * updates arrive over SSE and are folded in with `mergeSessionView`; polling
+ * starts only once `EventSource` has genuinely given up.
  *
- * 1. `initialData` is the view the Server Component already rendered, so there
- *    is no fetch on mount and no spinner on a page whose HTML already contained
- *    the answer.
- * 2. Updates arrive over SSE and are folded in with `mergeSessionView`, which
- *    drops anything not newer by (`session.version`, `serverTime`) — reconnect
- *    replay deliberately re-sends events the client may already have processed.
- *    Both halves are load-bearing: a price change re-projects the session
- *    without mutating it, so version alone would discard it.
- * 3. Polling is a fallback, not the design: it starts only once EventSource has
- *    genuinely given up, and stops when the stream recovers.
- *
- * URLs are relative so they resolve against whatever origin the page was served
- * from, which is what lets the same code work over a tunnel or a LAN IP.
+ * URLs are relative so they resolve against whatever origin served the page,
+ * which is what lets the same code work over a tunnel or a LAN IP.
  */
 export function useCheckoutSession(input: {
   sessionId: string;
@@ -48,7 +40,7 @@ export function useCheckoutSession(input: {
   const { sessionId, initialView, surface, clientId } = input;
   const queryClient = useQueryClient();
   const [streamState, setStreamState] = useState<StreamState>("reconnecting");
-  const queryKey = ["checkout", sessionId];
+  const queryKey = useMemo(() => ["checkout", sessionId], [sessionId]);
 
   const query = useQuery({
     queryKey,
@@ -90,8 +82,7 @@ export function useCheckoutSession(input: {
       setStreamState(source.readyState === EventSource.CLOSED ? "polling" : "reconnecting");
 
     return () => source.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, queryClient]);
+  }, [sessionId, queryClient, queryKey]);
 
   return { view: query.data ?? initialView, streamState };
 }

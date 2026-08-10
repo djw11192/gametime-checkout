@@ -5,12 +5,9 @@ export type CasResult =
   | { ok: false; reason: "version_conflict" | "not_found" };
 
 /**
- * Shaped so swapping in Redis is mechanical rather than a redesign:
- * `get` → GET, `putIfVersion` → a Lua CAS, `scanExpired` → ZRANGEBYSCORE on an
- * expiry index, `scanReapable` → not needed at all, because retention there is
- * an `EXPIRE` set at the moment the session goes terminal. Async even though
- * nothing here awaits, so no caller can be written in a way that only works
- * synchronously.
+ * Shaped so swapping in Redis is mechanical: `get` → GET, `putIfVersion` → a Lua
+ * CAS, `scanExpired` → ZRANGEBYSCORE on an expiry index. Async even though
+ * nothing here awaits, so no caller can be written to depend on it being sync.
  */
 export interface SessionStore {
   get(id: string): Promise<CheckoutSession | null>;
@@ -39,19 +36,14 @@ export class InMemorySessionStore implements SessionStore {
   }
 
   /**
-   * The linchpin of duplicate-order prevention.
-   *
-   * Node being single-threaded guarantees nothing on its own: a handler that
-   * reads a session, awaits a payment call, then writes it back has yielded the
-   * event loop in between, and a second request interleaves exactly there.
-   * "Node is single-threaded so I don't need locking" is the reasoning behind
-   * most double-charge bugs in Node checkout code.
+   * The linchpin of duplicate-order prevention. Single-threaded is not the same
+   * as atomic: a handler that reads a session, awaits a payment call, then
+   * writes it back has yielded the event loop in between, and a second request
+   * interleaves exactly there.
    *
    * What makes this safe is that the compare and the write happen in one
    * synchronous turn — no `await` between reading `version` and calling `set`.
-   * Callers may yield as much as they like beforehand; if anything changed
-   * underneath, the version check fails and they are told. Same contract Redis
-   * gives via a Lua script.
+   * Callers may yield as much as they like beforehand.
    */
   async putIfVersion(next: CheckoutSession, expectedVersion: number): Promise<CasResult> {
     const current = this.sessions.get(next.id);

@@ -12,7 +12,7 @@ export function catalogRouter(container: Container): Router {
 
   router.get("/events/:eventId", (req, res) => {
     const event = inventory.getEvent(req.params.eventId as string);
-    if (!event) throw new ApiError("SESSION_NOT_FOUND", "Event not found.");
+    if (!event) throw new ApiError("NOT_FOUND", "Event not found.");
     res.json({ event, listings: inventory.listListingsForEvent(event.id) });
   });
 
@@ -20,7 +20,7 @@ export function catalogRouter(container: Container): Router {
    *  must still describe a listing that has since sold out. */
   router.get("/listings/:listingId", (req, res) => {
     const listing = inventory.getListing(req.params.listingId as string);
-    if (!listing) throw new ApiError("INVENTORY_UNAVAILABLE", "Listing not found.");
+    if (!listing) throw new ApiError("NOT_FOUND", "Listing not found.");
     res.json({ listing });
   });
 

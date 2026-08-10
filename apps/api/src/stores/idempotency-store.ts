@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-interface Record_<T> {
+interface Entry<T> {
   fingerprint: string;
   status: "in_flight" | "completed";
   claimedAt: number;
@@ -26,7 +26,7 @@ export type ClaimResult<T> =
  * impatient double-tap lands in. So the key is claimed before the work starts.
  */
 export class InMemoryIdempotencyStore {
-  private records = new Map<string, Record_<unknown>>();
+  private records = new Map<string, Entry<unknown>>();
 
   claim<T>(key: string, payload: unknown, nowMs: number): ClaimResult<T> {
     const fingerprint = createHash("sha256")
@@ -64,14 +64,10 @@ export class InMemoryIdempotencyStore {
   }
 
   /**
-   * Forget keys older than the retention window. Without this the map is a leak
-   * — an idempotency record is tiny, but there is one per purchase attempt and
-   * nothing ever removes it. Real implementations give the key a TTL on write;
-   * this is the same policy expressed as a sweep.
-   *
-   * In-flight records are swept too. One older than the window means the
-   * process that claimed it died mid-attempt, and holding the key forever would
-   * lock that fan out of retrying with it.
+   * Forget keys older than the retention window. Real implementations give the
+   * key a TTL on write; this is the same policy expressed as a sweep. In-flight
+   * records go too — one older than the window means the process that claimed it
+   * died mid-attempt, and holding it would lock that fan out of retrying.
    */
   expireBefore(cutoffMs: number): number {
     let dropped = 0;

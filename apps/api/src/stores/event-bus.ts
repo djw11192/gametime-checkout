@@ -14,16 +14,12 @@ interface Channel {
 }
 
 /**
- * Per-session pub/sub with a replay buffer.
+ * Per-session pub/sub with a bounded replay buffer. A fan who locks their phone
+ * drops the connection; `EventSource` reconnects and sends back the last id it
+ * saw, and the buffer is what lets us fill the gap instead of leaving the client
+ * silently stale. A client that falls further behind than the buffer still gets
+ * a full-state envelope, so it self-heals.
  *
- * The buffer is what turns SSE from "live updates" into actual continuity. A
- * fan who locks their phone drops the connection; `EventSource` reconnects on
- * its own and sends back the last id it saw. Without a buffer, everything that
- * happened during the gap is lost and the client is silently stale — the exact
- * failure this feature exists to prevent, reintroduced one layer down.
- *
- * Bounded, because an unbounded per-session array is a memory leak. A client
- * that falls further behind gets a full-state envelope anyway, so it self-heals.
  * In production: Redis pub/sub for fan-out plus `XADD … MAXLEN ~ 50` for replay.
  */
 export class SessionEventBus {
@@ -76,12 +72,7 @@ export class SessionEventBus {
 
   /**
    * Drop a channel whose session has been reaped. Bounding the buffer is not
-   * enough on its own — the *map* grows by one entry per checkout ever started,
-   * and each entry holds up to 50 full session views.
-   *
-   * Any subscriber still attached simply stops hearing anything, which is
-   * correct: the session was terminal for a full retention window before it got
-   * here, and terminal sessions publish nothing.
+   * enough on its own — the map grows by one entry per checkout ever started.
    */
   dropSession(sessionId: string): void {
     this.channels.delete(sessionId);

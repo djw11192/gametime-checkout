@@ -6,14 +6,9 @@ import { Card } from "@/components/ui";
 export const metadata = { title: "Gametime — Tickets" };
 
 /**
- * Browsing is cacheable; checkout is not. Event names, venues and dates are the
- * same for every fan and barely change, so this is the longest window in the
- * app — the event page uses a shorter one because it carries prices.
- *
- * This only works because `listEvents` opts into caching at the fetch layer as
- * well. An uncached fetch anywhere in a route makes the whole route dynamic, so
- * a `revalidate` here without the matching one there would quietly do nothing —
- * and the effective window is the shorter of the two, not this number.
+ * Browsing is cacheable; checkout is not. Only works because `listEvents` opts
+ * into caching at the fetch layer too — an uncached fetch anywhere in a route
+ * makes the whole route dynamic, so this alone would quietly do nothing.
  */
 export const revalidate = 60;
 

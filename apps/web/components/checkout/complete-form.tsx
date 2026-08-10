@@ -14,16 +14,12 @@ import { buttonClass } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 /**
- * The purchase control.
+ * A real `<form>` posting to a Server Action rather than an onClick handler, so
+ * it works before hydration finishes — on a mid-range phone on a stadium network
+ * that is not a theoretical window.
  *
- * A real `<form>` posting to a Server Action, not an onClick handler. It works
- * with JavaScript disabled and, more usefully, during the window before
- * hydration finishes — which on a mid-range phone on a stadium network is not a
- * theoretical window.
- *
- * The button's disabled state mirrors the server's `blockers` array rather than
- * being decided locally. The server already computes exactly when a purchase is
- * permitted; duplicating that logic in the client is how the two drift apart
+ * The disabled state mirrors the server's `blockers` array rather than being
+ * decided locally: duplicating that logic client-side is how the two drift apart
  * and the fan ends up clicking something that always 409s.
  */
 export function CompleteForm({
@@ -48,7 +44,7 @@ export function CompleteForm({
       <input type="hidden" name="quoteHash" value={quoteHash} />
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
-      <SubmitButton view={view} fullWidth={fullWidth} />
+      <CompleteButton view={view} />
 
       {state.status === "error" ? (
         <p
@@ -62,19 +58,17 @@ export function CompleteForm({
   );
 }
 
-function SubmitButton({ view, fullWidth }: { view: CheckoutSessionView; fullWidth?: boolean }) {
+function CompleteButton({ view }: { view: CheckoutSessionView }) {
   const { pending } = useFormStatus();
-  const blocked = !view.canComplete;
   const total = view.liveQuote?.totalCents ?? view.session.acceptedQuote.totalCents;
 
   return (
-    // No `aria-describedby`: the reason is the button's own label, so it is
-    // already in the accessible name. An earlier version pointed at a
-    // `cta-reason` element that did not exist, which announces nothing.
+    // No `aria-describedby`: the reason a purchase is blocked is the button's
+    // own label, so it is already in the accessible name.
     <button
       type="submit"
-      disabled={blocked || pending}
-      className={buttonClass("primary", cn("w-full py-3 text-base", fullWidth && "w-full"))}
+      disabled={!view.canComplete || pending}
+      className={buttonClass("primary", "w-full py-3 text-base")}
     >
       {pending ? "Completing…" : labelFor(view, total)}
     </button>

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 /** One closed set of codes. Clients switch on `code`, never on the HTTP status alone. */
 export const ApiErrorCodeSchema = z.enum([
+  "NOT_FOUND",
   "SESSION_NOT_FOUND",
   "SESSION_EXPIRED",
   "SESSION_TERMINAL",
@@ -11,8 +12,6 @@ export const ApiErrorCodeSchema = z.enum([
   "INVENTORY_UNAVAILABLE",
   /** Another surface holds the single-flight completion lock. */
   "COMPLETION_IN_PROGRESS",
-  "PAYMENT_DECLINED",
-  "PAYMENT_ERROR",
   "EXTENSION_LIMIT_REACHED",
   "VALIDATION_FAILED",
   "IDEMPOTENCY_KEY_REUSED",
@@ -36,6 +35,7 @@ export const ApiErrorBodySchema = z.object({
 });
 
 export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
+  NOT_FOUND: 404,
   SESSION_NOT_FOUND: 404,
   SESSION_EXPIRED: 409,
   SESSION_TERMINAL: 409,
@@ -43,8 +43,6 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   QUOTE_STALE: 409,
   INVENTORY_UNAVAILABLE: 409,
   COMPLETION_IN_PROGRESS: 409,
-  PAYMENT_DECLINED: 402,
-  PAYMENT_ERROR: 502,
   EXTENSION_LIMIT_REACHED: 409,
   VALIDATION_FAILED: 400,
   IDEMPOTENCY_KEY_REUSED: 422,
@@ -52,6 +50,7 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
 };
 
 export const RETRYABLE_BY_CODE: Record<ApiErrorCode, boolean> = {
+  NOT_FOUND: false,
   SESSION_NOT_FOUND: false,
   SESSION_EXPIRED: false,
   SESSION_TERMINAL: false,
@@ -59,8 +58,6 @@ export const RETRYABLE_BY_CODE: Record<ApiErrorCode, boolean> = {
   QUOTE_STALE: true,
   INVENTORY_UNAVAILABLE: false,
   COMPLETION_IN_PROGRESS: true,
-  PAYMENT_DECLINED: true,
-  PAYMENT_ERROR: true,
   EXTENSION_LIMIT_REACHED: false,
   VALIDATION_FAILED: false,
   IDEMPOTENCY_KEY_REUSED: false,

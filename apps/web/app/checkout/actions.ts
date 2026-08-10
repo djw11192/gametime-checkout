@@ -7,14 +7,12 @@ import { getClientId } from "@/lib/surface";
 import type { ActionState } from "./action-state";
 
 /**
- * Every checkout mutation is reachable as a plain form POST. With JavaScript
+ * Every checkout mutation is reachable as a plain form POST, so with JavaScript
  * disabled — or simply not yet executed — the fan can still accept a price
- * change and complete a purchase. The client components layer pending states on
- * top, but nothing essential depends on them.
+ * change and complete a purchase.
  *
- * It is also why the forms carry a server-generated `idempotencyKey`: with no
- * JS there is no button to disable, so an impatient double-click posts twice —
- * and both posts carry the same key.
+ * It is also why the forms carry a server-generated `idempotencyKey`: with no JS
+ * there is no button to disable, so a double-click posts twice with one key.
  */
 
 const surfaceOf = (formData: FormData): Surface =>

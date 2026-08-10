@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"pnpm --filter @gametime/api dev\" \"pnpm --filter @gametime/web dev\"",
-    "build": "pnpm --filter @gametime/contracts build && pnpm --filter @gametime/api build && pnpm --filter @gametime/web build",
+    "build": "pnpm --filter @gametime/api build && pnpm --filter @gametime/web build",
     "test": "pnpm -r --sequential test",
     "test:watch": "pnpm --filter @gametime/api test:watch",
     "tunnel": "ngrok http 3000",

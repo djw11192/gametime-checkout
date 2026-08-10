@@ -52,9 +52,7 @@ export function MobilePanel({
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-600">Gametime</p>
           <p className="text-sm font-semibold">{terminal ? "Checkout" : "Complete purchase"}</p>
         </div>
-        {/* Same as the desktop surface: no clock once the purchase is in
-            flight. The deadline became this attempt's budget rather than the
-            fan's shopping time, and it is not theirs to race any more. */}
+        {/* Same as desktop: no clock once the purchase is in flight. */}
         {terminal || completing ? null : (
           <div className="text-right">
             <p className="text-[11px] text-slate-500">Seats held</p>

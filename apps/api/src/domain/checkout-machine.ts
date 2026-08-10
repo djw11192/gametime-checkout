@@ -15,13 +15,10 @@ import { domainError, type DomainError } from "./errors";
 
 /**
  * The checkout state machine: a pure function. No clock, no store, no network —
- * `now` and the live quote arrive in the context. Everything that decides
- * whether a fan gets charged lives here and is exercised as a table of inputs
- * and expected outputs, with no HTTP server and no sleeping.
+ * `now` and the live quote arrive in the context, so everything that decides
+ * whether a fan gets charged is testable as a table of inputs and outputs.
  *
- * The service that wraps this does all the I/O and is deliberately dumb: read,
- * reduce, compare-and-swap, publish. If a rule looks like it wants to live in
- * the service, it belongs here instead.
+ * If a rule looks like it wants to live in the service, it belongs here instead.
  */
 
 export type Command =
@@ -192,9 +189,8 @@ export function reduce(
       // attempt, and everyone else is told who has it so they can say
       // "finishing on your other device" rather than surfacing an error.
       //
-      // The grace is the one place a deadline is read generously, because this
-      // is the one command where the fan has already acted. Their click left
-      // before the clock ran out; the latency between there and here is ours.
+      // The only command that reads the deadline generously, because it is the
+      // only one where the fan already acted before the clock ran out.
       const blocked = guard(COMPLETION_GRACE_MS);
       if (blocked) return fail(blocked);
       if (!ctx.live) return fail(gone());
@@ -206,11 +202,9 @@ export function reduce(
         return fail(short(ctx.availableQuantity, session.quantity));
       }
 
-      // Two checks, and both matter. The first stops a fan acting on a screen
-      // that is out of date. The second stops a client quietly re-quoting and
-      // completing at a price the fan was never shown — which is what makes
-      // "we never charge an unseen price" a property of the server rather than
-      // a promise about the frontend.
+      // Both checks matter. The first stops a fan acting on an out-of-date
+      // screen; the second stops a client quietly re-quoting and completing at a
+      // price the fan was never shown.
       if (command.quoteHash !== ctx.live.hash) return fail(stale(ctx.live));
       if (session.acknowledgedQuoteHash !== ctx.live.hash) {
         return fail(stale(ctx.live, "The price changed and has not been accepted yet."));
@@ -221,10 +215,9 @@ export function reduce(
         next: touch({
           ...session,
           status: "completing",
-          // Taking the lock re-purposes the deadline: it stops being the fan's
-          // shopping time and becomes this attempt's budget. `max` so a fan who
-          // extended does not have time taken away. Not counted against
-          // `extensionsUsed` — that allowance is theirs, and this is ours.
+          // Taking the lock re-purposes the deadline: it stops being shopping
+          // time and becomes this attempt's budget. `max` so a fan who extended
+          // does not lose time, and not counted against `extensionsUsed`.
           expiresAt: new Date(
             Math.max(
               new Date(session.expiresAt).getTime(),
@@ -283,15 +276,10 @@ export function reduce(
 
       const { code, message, retryable } = command.result;
       // A retryable failure hands the session back so the fan can try another
-      // card — but only if there is time left, since returning an already
-      // elapsed session to `active` would show a live checkout reading 0:00.
-      //
-      // Reaching that branch now means the attempt outlived the whole
-      // completion window, not merely the original shopping TTL:
-      // `BEGIN_COMPLETION` pushed the deadline out when it took the lock. A
-      // decline seconds after the countdown hit zero therefore returns the fan
-      // to `active` with time to try another card, which is the common case and
-      // used to be a forced restart.
+      // card, but only if there is time left — returning an elapsed session to
+      // `active` would show a live checkout reading 0:00. Reaching `expired`
+      // here means the attempt outlived the whole completion window, not merely
+      // the original TTL, since `BEGIN_COMPLETION` pushed the deadline out.
       const nextStatus = retryable ? (hasElapsed(session, ctx.now) ? "expired" : "active") : "failed";
 
       return {
@@ -309,9 +297,8 @@ export function reduce(
     }
 
     case "CANCEL": {
-      // Cancelling mid-authorization is refused: we would not know whether the
-      // charge landed, and "cancelled" next to a real bank hold is the worst
-      // possible thing to show someone.
+      // Refused mid-authorization: we would not know whether the charge landed,
+      // and "cancelled" next to a live bank hold is worse than saying nothing.
       const blocked = guard();
       if (blocked) return fail(blocked);
       return { ok: true, next: touch({ ...session, status: "canceled" }), emit: ["session.updated"] };

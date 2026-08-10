@@ -1,7 +1,6 @@
 /**
  * Time is injected, not ambient. Every expiry rule is expressed against this,
- * which is what lets the suite exercise a ten-minute TTL in under a
- * millisecond. A suite that sleeps is a suite nobody runs.
+ * which is what lets the tests exercise a ten-minute TTL without sleeping.
  */
 export interface Clock {
   now(): Date;

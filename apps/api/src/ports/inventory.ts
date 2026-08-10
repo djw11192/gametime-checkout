@@ -3,14 +3,12 @@ import { SEED_EVENTS, SEED_LISTINGS } from "../data/seed";
 
 /**
  * The marketplace inventory boundary. In production this calls the listings
- * service; the property the fake must preserve is that it is authoritative and
+ * service; the property the fake preserves is that it is authoritative and
  * mutable independently of us — a listing can lose quantity or vanish between
  * two of our reads, with no notification.
  *
- * Deliberately not a hold/reservation model. Gametime is a secondary
- * marketplace: listings are third-party inventory that can sell on another
- * channel at any moment. Locking seats the way a primary vendor does would
- * misrepresent the domain and hide the failure this prototype needs to show.
+ * There is no hold or reservation. On a secondary marketplace the inventory is
+ * third-party and can sell on another channel at any moment; see the README.
  */
 export interface InventoryProvider {
   listEvents(): EventRecord[];

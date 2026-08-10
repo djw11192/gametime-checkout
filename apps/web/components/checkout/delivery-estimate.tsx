@@ -1,14 +1,11 @@
-import { getListing } from "@/lib/api";
+import type { Listing } from "@gametime/contracts";
 import { Card, Skeleton } from "@/components/ui";
 
 /**
- * A deliberately slow secondary panel, used to demonstrate streaming.
- *
- * In production this is the kind of thing that calls a delivery-partner API and
- * occasionally takes a second: useful, but not something a fan should wait on
- * before seeing the price they are about to pay. Behind a Suspense boundary it
- * arrives late without holding up the shell — and because the skeleton below is
- * exactly its height, the page does not move when it lands.
+ * Stands in for a delivery-partner lookup: useful, but not something a fan
+ * should wait on before seeing the price they are about to pay. Behind a
+ * Suspense boundary it arrives late without holding up the shell, and the
+ * skeleton below is exactly its height so the page does not move when it lands.
  */
 const DELIVERY_COPY: Record<string, { title: string; detail: string }> = {
   mobile_transfer: {
@@ -25,13 +22,8 @@ const DELIVERY_COPY: Record<string, { title: string; detail: string }> = {
   },
 };
 
-export async function DeliveryEstimate({ listingId }: { listingId: string }) {
-  const listing = await getListing(listingId).catch(() => null);
-
-  // Simulates the third-party latency this boundary exists to absorb. Long
-  // enough that the skeleton is unmistakably visible, short enough not to sit
-  // on the primary conversion path — this route is where every Checkout click
-  // lands.
+export async function DeliveryEstimate({ listing }: { listing: Listing | null }) {
+  // The third-party latency this boundary exists to absorb.
   await new Promise((resolve) => setTimeout(resolve, 250));
 
   const copy = listing ? DELIVERY_COPY[listing.deliveryType] : undefined;

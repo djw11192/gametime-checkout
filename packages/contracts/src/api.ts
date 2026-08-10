@@ -75,3 +75,8 @@ export const ExpireSessionRequestSchema = z.object({
   /** Seconds from now to move `expiresAt` to. 0 expires immediately. */
   inSeconds: z.number().int().nonnegative(),
 });
+
+export const SettlePendingRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  approve: z.boolean().default(true),
+});

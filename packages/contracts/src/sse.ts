@@ -2,11 +2,9 @@ import { z } from "zod";
 import type { CheckoutSessionView } from "./session";
 
 /**
- * SSE rather than WebSockets: the traffic is purely server→client, it rides
- * plain HTTP with no upgrade path or sticky-session infrastructure, and
- * `EventSource` gives reconnection and `Last-Event-ID` replay for free — which
- * is the "the fan got interrupted and came back" problem this whole prototype
- * is about, expressed at the transport layer.
+ * SSE rather than WebSockets: purely server→client, plain HTTP with no upgrade
+ * path or sticky sessions, and `EventSource` gives reconnection plus
+ * `Last-Event-ID` replay for free.
  */
 export const SseEventTypeSchema = z.enum([
   "session.updated",
@@ -33,28 +31,17 @@ export interface SseEnvelope {
 
 /**
  * Fold a pushed view into what the client already has, dropping anything not
- * strictly newer.
+ * strictly newer. Reconnect replay deliberately re-sends events the client may
+ * already have processed.
  *
- * Reconnect replay deliberately re-sends events the client may already have
- * processed. Without a guard a replayed envelope can walk a completed checkout
- * back to `active` — the fan watches their confirmation turn back into a buy
- * button.
+ * Newer is two clocks, in this order. `session.version` orders mutations — it is
+ * the concurrency token, and only advances when the stored session is written.
+ * `serverTime` orders re-projections at an unchanged version, which is exactly
+ * what a price change is: the marketplace moved, the fan's agreement did not.
+ * Both halves are needed; the README explains what each one alone gets wrong.
  *
- * **Newer is two clocks, in this order.** `session.version` orders *mutations*:
- * it is the optimistic-concurrency token and only advances when the stored
- * session is written. `serverTime` orders *re-projections at the same version*,
- * and that is precisely what a price change is — the marketplace moved, the
- * fan's agreement did not, so the session is byte-identical and only
- * `liveQuote`, `drift`, `blockers` and `canComplete` differ.
- *
- * Comparing version alone silently discards every `quote.changed` push, which
- * is the one event the whole feature exists to deliver. Comparing time alone
- * would let a replayed projection outrank a real mutation. It has to be the
- * pair.
- *
- * Single-writer assumption: `serverTime` is stamped by one process's clock
- * (`buildView`). Across instances this wants a real sequence — a Redis stream
- * id — rather than a timestamp.
+ * Single-writer assumption: `serverTime` comes from one process's clock. Across
+ * instances the tiebreak wants a real sequence number, not a timestamp.
  */
 export function mergeSessionView<
   T extends { session: { version: number }; serverTime: string },

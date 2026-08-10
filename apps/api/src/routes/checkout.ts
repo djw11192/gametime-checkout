@@ -9,30 +9,13 @@ import {
 } from "@gametime/contracts";
 import type { Container } from "../container";
 import { ApiError } from "../domain/errors";
-import { parseBody } from "./validate";
+import { parseBody } from "../lib/validate";
 
 /**
- * ── Why there is no `If-Match` here ───────────────────────────────────────
- *
- * An earlier cut accepted `If-Match: <session version>` on every mutation. It
- * came out because no client could use it correctly: `GET /sessions/:id`
- * records that a surface looked, which is a write, so merely opening the
- * checkout on a phone advances the version a laptop is holding. A precondition
- * that a *third party glancing at their screen* invalidates produces 409s that
- * mean nothing to the fan, and the honest client behaviour is to ignore it.
- *
- * What each mutation actually needs is a precondition on the thing at risk,
- * which is narrower and stable under unrelated activity:
- *
- *   acknowledge / complete — `quoteHash`, so a fan cannot accept or be charged
- *                            a price that is no longer on offer
- *   complete               — the CAS into `completing`, for two devices racing
- *   complete               — `Idempotency-Key`, for one device retrying
- *   extend / cancel        — nothing; they are safe against any current state,
- *                            and the reducer refuses them on a dead session
- *
- * The version is still the store's concurrency token — every write goes through
- * `putIfVersion` — it is just not a useful *client* token.
+ * Each mutation's precondition guards the thing actually at risk: `quoteHash`
+ * for anything that could charge a different number, the CAS into `completing`
+ * for two devices racing, `Idempotency-Key` for one device retrying. There is
+ * deliberately no `If-Match` on the session version — see the README.
  */
 export function checkoutRouter(container: Container): Router {
   const router = Router();

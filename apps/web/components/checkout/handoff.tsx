@@ -2,15 +2,11 @@ import { qrSvg } from "@/lib/qr";
 import { Card } from "@/components/ui";
 
 /**
- * The cross-device handoff.
+ * The cross-device handoff. `/link/{id}` is the deep link — an HTTPS URL a
+ * native app would claim, falling through to the web surface when it is not
+ * installed.
  *
- * `/link/{id}` is the deep link. A universal link is an HTTPS URL exactly like
- * this one — claimed by the native app through `apple-app-site-association`
- * when it is installed, and falling through to the web surface when it is not.
- * That fallback is the path that matters here, and it is the reason a deep link
- * should never be a bare custom scheme that dead-ends for everyone else.
- *
- * The QR is generated as inline SVG on the server: no client library, no image
+ * The QR is inline SVG generated on the server: no client library, no image
  * request, and scannable off a page that has not hydrated yet.
  */
 export async function Handoff({ sessionId, origin }: { sessionId: string; origin: string }) {

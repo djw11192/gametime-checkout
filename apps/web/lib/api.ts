@@ -14,14 +14,11 @@ import {
 } from "@gametime/contracts";
 
 /**
- * Server-side client for the checkout API.
- *
- * `server-only` is load-bearing: everything here runs during SSR against an
- * internal address, so the browser never makes the first request and the
- * checkout summary is already in the HTML when the document arrives. Importing
- * this from a Client Component is a build error rather than a subtle regression.
- *
- * Browser-side calls go same-origin through the rewrite in `next.config.ts`.
+ * Server-side client for the checkout API. `server-only` makes importing this
+ * from a Client Component a build error rather than a subtle regression:
+ * everything here runs during SSR against an internal address, so the browser
+ * never makes the first request. Browser-side calls go same-origin through the
+ * rewrite in `next.config.ts`.
  */
 
 const API_BASE = process.env.API_BASE_URL ?? "http://localhost:4000";
@@ -81,15 +78,10 @@ const parseSession = (data: unknown) =>
 /* ── Catalog ──────────────────────────────────────────────────────────────── */
 
 /**
- * Browsing is the same for every fan, so it is cached and served from the edge
- * of whatever is in front of this rather than re-rendered per visitor.
- *
- * A stale price on a browse page is not a correctness problem, because the
- * price a fan is held to is the one the server quotes when the session is
- * created — and if it has moved by the time they complete, the quote hash
- * catches it and the drift banner asks them to accept the new total. Browse
- * optimistically, re-validate at the till, which is how ticketing actually
- * works.
+ * Browsing is the same for every fan, so it is cached rather than re-rendered
+ * per visitor. A stale price here is not a correctness problem: the price a fan
+ * is held to is the one quoted when the session is created, and the quote hash
+ * catches any move before they are charged.
  */
 const EVENT_LIST_REVALIDATE_SECONDS = 60;
 const EVENT_LISTINGS_REVALIDATE_SECONDS = 30;

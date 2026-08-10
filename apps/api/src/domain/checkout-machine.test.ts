@@ -91,13 +91,13 @@ describe("the transition table", () => {
     command: Command;
     expect: { ok: true; to: SessionStatus } | { ok: false; code: string };
   }> = [
-    // ── from active ────────────────────────────────────────────────────────
+    // from active
     { from: "active", command: beginCompletion(), expect: { ok: true, to: "completing" } },
     { from: "active", command: { type: "CANCEL" }, expect: { ok: true, to: "canceled" } },
     { from: "active", command: { type: "EXPIRE" }, expect: { ok: true, to: "expired" } },
     { from: "active", command: { type: "EXTEND" }, expect: { ok: true, to: "active" } },
 
-    // ── from completing: the single-flight guard ───────────────────────────
+    // from completing: the single-flight guard
     {
       from: "completing",
       command: beginCompletion(),
@@ -119,7 +119,7 @@ describe("the transition table", () => {
       expect: { ok: false, code: "SESSION_TERMINAL" },
     },
 
-    // ── terminal states reject everything ──────────────────────────────────
+    // terminal states reject everything
     ...(["completed", "canceled", "failed"] as const).flatMap((from) => [
       { from, command: beginCompletion(), expect: { ok: false as const, code: "SESSION_TERMINAL" } },
       { from, command: { type: "CANCEL" as const }, expect: { ok: false as const, code: "SESSION_TERMINAL" } },

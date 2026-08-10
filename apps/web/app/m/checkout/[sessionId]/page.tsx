@@ -3,7 +3,6 @@ import Link from "next/link";
 import { formatClockTime } from "@gametime/contracts";
 import { DeviceFrame, StatusBar } from "@/components/checkout/device-frame";
 import { MobilePanel } from "@/components/checkout/mobile-panel";
-import { PerfMarks } from "@/components/perf-marks";
 import { buttonClass } from "@/components/ui";
 import { ApiClientError, getCheckoutSession, getEventWithListings, getListing } from "@/lib/api";
 import { clientContext } from "@/lib/surface";
@@ -11,11 +10,9 @@ import { clientContext } from "@/lib/surface";
 export const dynamic = "force-dynamic";
 
 /**
- * The second surface. Fetches the same session by the same id and renders it
- * server-side exactly as the desktop route does — the difference is entirely
- * presentational. Nothing about resuming is special-cased: a session is a
- * server-owned object with a URL, and any surface that can reach the URL can
- * continue the purchase.
+ * The second surface: same session, same id, same server-side render — the
+ * difference is entirely presentational. Nothing about resuming is
+ * special-cased.
  *
  * The one genuinely mobile concern is cold-start recovery: a deep link may be
  * opened hours later into a checkout that no longer exists, so that gets a real
@@ -66,7 +63,6 @@ export default async function MobileCheckoutPage({
 
   return (
     <DeviceFrame>
-      <PerfMarks route="checkout-mobile" />
       <StatusBar label={formatClockTime(view.serverTime)} />
       <MobilePanel
         initialView={view}

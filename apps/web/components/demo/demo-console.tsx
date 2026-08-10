@@ -6,11 +6,8 @@ import { buttonClass } from "@/components/ui";
 
 /**
  * Two surfaces on the same session, side by side, with the levers that move the
- * world underneath them.
- *
- * It exists because the interesting behaviour here is inherently multi-device
- * and time-dependent, and a reviewer has neither two phones nor ten minutes to
- * wait for a TTL.
+ * world underneath them. The interesting behaviour here is multi-device and
+ * time-dependent, and nobody has two phones and ten minutes to wait for a TTL.
  */
 export function DemoConsole({
   sessionId,
@@ -22,19 +19,10 @@ export function DemoConsole({
   const [busy, setBusy] = useState<string | null>(null);
 
   /**
-   * Fire the lever and nothing else — no iframe reload.
-   *
-   * An earlier version reloaded both frames a quarter-second after every
-   * scenario call, "for the Server-Component half of each surface". Nothing in
-   * that half moves: the shell renders the event, venue, section and row, and a
-   * repricing changes none of them. What the reload actually did was repaint
-   * both surfaces from the server on every action, so the demo looked correct
-   * while `quote.changed` was being discarded on arrival — it hid the bug it
-   * was standing next to.
-   *
-   * Now the surfaces update because the push reached them, which is the claim
-   * this console exists to demonstrate. If a panel ever stops updating here,
-   * that is a real failure and it should be visible.
+   * Fire the lever and nothing else — no iframe reload. The surfaces update
+   * because the push reached them, which is the claim this console exists to
+   * demonstrate. If a panel stops updating here, that is a real failure and it
+   * should be visible.
    */
   const run = useCallback(async (name: string, path: string, body: unknown) => {
     setBusy(name);

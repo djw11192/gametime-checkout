@@ -8,8 +8,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * surface is looking, and a value only readable after hydration would arrive
  * too late to be part of the initial fetch.
  *
- * This is not authentication. The prompt puts auth out of scope; the id exists
- * to tell two devices apart so "completing on your other device" can be true.
+ * This is not authentication — it exists only to tell two devices apart, so
+ * "completing on your other device" can be true.
  */
 const COOKIE = "gt_client";
 

@@ -3,21 +3,11 @@ import { QuoteSchema } from "./quote";
 import { SurfaceSchema } from "./catalog";
 
 /**
- * Two orthogonal axes, the same split Stripe makes between a Checkout Session's
- * `status` and its `payment_status`:
- *
- *   1. `status`            — the lifecycle. Small, closed, exhaustively tested.
- *   2. `completion.status` — how the in-flight payment attempt is going.
- *
- * "Payment pending" is therefore not a lifecycle state; it is
- * `completing` + `completion.status: "pending"`. Collapsing the two axes is how
- * this kind of machine rots into `active_but_price_changed_and_payment_pending`.
- *
- *   active ──► completing ──► completed        (terminal)
- *     │            ├───────► active            (retryable failure — try another card)
- *     │            └───────► failed            (terminal failure)
- *     ├──────► expired                         (TTL elapsed)
- *     └──────► canceled
+ * Two orthogonal axes: `status` is the lifecycle, `completion.status` is how the
+ * in-flight payment attempt is going. "Payment pending" is therefore not a
+ * lifecycle state — it is `completing` + `completion.status: "pending"`.
+ * Collapsing them is how this kind of machine rots into
+ * `active_but_price_changed_and_payment_pending`.
  */
 export const SessionStatusSchema = z.enum([
   "active",
@@ -74,11 +64,9 @@ export const CompletionStateSchema = z.object({
 /**
  * The persisted session: the fan's agreement, and nothing else.
  *
- * Note what is absent — no cached listing price, no `hasPriceChanged` flag, no
- * stored drift. Those are facts about the world right now, not about the
- * agreement, so they are recomputed on every read into a `CheckoutSessionView`.
- * Persisting a comparison is how you end up serving a "price went up!" banner
- * for a price that has since gone back down.
+ * No cached listing price, no `hasPriceChanged` flag, no stored drift: those are
+ * facts about the world right now rather than about the agreement, so they are
+ * recomputed on every read into a `CheckoutSessionView`.
  */
 export const CheckoutSessionSchema = z.object({
   /** The resume key: this id is the URL and the deep link. */

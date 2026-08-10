@@ -1,18 +1,16 @@
 import { createHash } from "node:crypto";
 import { quoteFingerprint, type Listing, type Quote } from "@gametime/contracts";
-import type { InventoryProvider } from "./inventory";
 
 /**
- * Pricing is split from inventory because in a real marketplace the seller sets
- * face value but the platform computes fees and promotions, and those move on
- * different clocks.
+ * Separate from inventory because the seller sets face value but the platform
+ * computes fees and promotions, and those move on different clocks. A function
+ * rather than a provider object: there is no state to hold, and the service
+ * takes it as a dependency either way.
  */
-export interface PricingProvider {
-  quoteFromListing(listing: Listing, quantity: number): Quote;
-}
+export type QuoteListing = (listing: Listing, quantity: number) => Quote;
 
-/** Truncated sha256 — a change detector, not a security boundary, and it travels in form bodies. */
-export function hashQuote(input: {
+/** Truncated sha256 — a change detector, not a security boundary. */
+function hashQuote(input: {
   listingId: string;
   quantity: number;
   pricePerTicketCents: number;
@@ -21,26 +19,23 @@ export function hashQuote(input: {
   return createHash("sha256").update(quoteFingerprint(input)).digest("hex").slice(0, 16);
 }
 
-export class MarketplacePricingProvider implements PricingProvider {
-  constructor(private readonly inventory: InventoryProvider) {}
+export const quoteFromListing: QuoteListing = (listing, quantity) => {
+  const subtotalCents = listing.pricePerTicketCents * quantity;
+  const feesCents = listing.feesPerTicketCents * quantity;
 
-  quoteFromListing(listing: Listing, quantity: number): Quote {
-    const subtotalCents = listing.pricePerTicketCents * quantity;
-    const feesCents = listing.feesPerTicketCents * quantity;
-    return {
+  return {
+    listingId: listing.id,
+    quantity,
+    pricePerTicketCents: listing.pricePerTicketCents,
+    feesPerTicketCents: listing.feesPerTicketCents,
+    subtotalCents,
+    feesCents,
+    totalCents: subtotalCents + feesCents,
+    hash: hashQuote({
       listingId: listing.id,
       quantity,
       pricePerTicketCents: listing.pricePerTicketCents,
       feesPerTicketCents: listing.feesPerTicketCents,
-      subtotalCents,
-      feesCents,
-      totalCents: subtotalCents + feesCents,
-      hash: hashQuote({
-        listingId: listing.id,
-        quantity,
-        pricePerTicketCents: listing.pricePerTicketCents,
-        feesPerTicketCents: listing.feesPerTicketCents,
-      }),
-    };
-  }
-}
+    }),
+  };
+};

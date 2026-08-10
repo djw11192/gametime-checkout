@@ -52,11 +52,9 @@ export function CheckoutPanel({
   return (
     <div className="space-y-4">
       <header className="flex items-center justify-between gap-4">
-        {/* Hidden once the purchase is in flight. The deadline is still there —
-            it became this attempt's budget when the lock was taken — but it is
-            no longer a deadline the fan can act on, and a clock next to
-            "completing your purchase" reads as a threat to cancel it. Near the
-            boundary it would also visibly tick upward as the window opens. */}
+        {/* No clock once the purchase is in flight: the deadline became this
+            attempt's budget rather than the fan's shopping time, so it is not
+            theirs to race any more. */}
         {session.status === "completing" ? (
           <span className="text-sm text-slate-500 dark:text-slate-400">Finishing up</span>
         ) : (
@@ -128,17 +126,10 @@ function ExtendControl({ sessionId }: { sessionId: string }) {
 const DEGRADED_GRACE_MS = 2_000;
 
 /**
- * Says something only when this surface has stopped receiving pushes.
- *
- * The healthy path renders nothing. A fan does not know or care which transport
- * the page is using, and a permanent "Live" badge reports on our infrastructure
- * rather than telling them anything they can act on. What is worth saying is the
- * consequence: if the stream is down the price on screen may be a few seconds
- * stale, and this is a page where that number moves.
- *
- * The grace period matters because the stream starts out disconnected and
- * reconnects routinely — without it, every page load would flash a warning that
- * resolves before it can be read.
+ * Says something only when this surface has stopped receiving pushes. A
+ * permanent "Live" badge reports on our infrastructure; what is worth saying is
+ * the consequence — if the stream is down the price on screen may be stale, and
+ * this is a page where that number moves.
  */
 function StreamNotice({ state }: { state: StreamState }) {
   const degraded = state !== "live";

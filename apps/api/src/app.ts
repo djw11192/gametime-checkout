@@ -7,7 +7,6 @@ import express, {
 import cors from "cors";
 import type { Container } from "./container";
 import { ApiError } from "./domain/errors";
-import { analyticsRouter } from "./routes/analytics";
 import { catalogRouter } from "./routes/catalog";
 import { checkoutRouter } from "./routes/checkout";
 import { scenarioRouter } from "./routes/scenario";
@@ -24,7 +23,6 @@ export function createApp(container: Container): Express {
   app.use("/api", catalogRouter(container));
   app.use("/api/checkout", checkoutRouter(container));
   app.use("/api/checkout", sseRouter(container));
-  app.use("/api/analytics", analyticsRouter(container));
 
   if (process.env.NODE_ENV !== "production") {
     app.use("/api/_scenario", scenarioRouter(container));

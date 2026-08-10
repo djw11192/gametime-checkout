@@ -6,7 +6,7 @@ import {
 } from "@gametime/contracts";
 
 /**
- * ── The fold the SSE handler runs ─────────────────────────────────────────
+ * The fold the SSE handler runs.
  *
  * `useCheckoutSession` does exactly one stateful thing: for every frame that
  * arrives, replace the cached view if the frame is newer. Everything the fan
@@ -91,15 +91,11 @@ const fold = (frames: CheckoutSessionView[], initial: CheckoutSessionView) =>
 
 describe("folding pushed views into the cached one", () => {
   /**
-   * The regression that motivated these tests.
-   *
-   * A price change is not a session mutation — the fan's agreement is
-   * untouched, so `session.version` does not move — but `drift`, `blockers` and
-   * `canComplete` all do. An earlier guard ordered purely on version and
-   * therefore discarded every `quote.changed` frame: the API was correct, the
-   * push arrived, and the client threw it away. The drift banner only appeared
-   * on a fresh server render, which is exactly what the demo console's iframe
-   * reload was quietly providing.
+   * A price change is not a session mutation — the fan's agreement is untouched,
+   * so `session.version` does not move — but `drift`, `blockers` and
+   * `canComplete` all do. Ordering purely on version discards every
+   * `quote.changed` frame: the API is correct, the push arrives, and the client
+   * throws it away.
    */
   it("applies a price change that arrives at an unchanged session version", () => {
     const onScreen = view({ version: 3, serverTime: at(10) });

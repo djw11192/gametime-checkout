@@ -33,11 +33,8 @@ export function buttonClass(
   return cn(
     "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold",
     "transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
-    // `<button>` defaults to an arrow, so the pointer is opt-in. Set here rather
-    // than on the buy button alone: it sits directly above "Add 5 minutes", and
-    // one control feeling clickable while its neighbour doesn't is worse than
-    // either choice applied consistently. `:disabled` outranks it on specificity,
-    // so a blocked button still reads as blocked.
+    // `<button>` defaults to an arrow, so the pointer is opt-in. `:disabled`
+    // outranks it on specificity, so a blocked button still reads as blocked.
     "cursor-pointer disabled:cursor-not-allowed",
     BUTTON_VARIANTS[variant],
     className,

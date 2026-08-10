@@ -7,21 +7,17 @@ import { formatEventDate } from "@gametime/contracts";
 import { CheckoutPanel } from "@/components/checkout/checkout-panel";
 import { Handoff } from "@/components/checkout/handoff";
 import { DeliveryEstimate, DeliveryEstimateSkeleton } from "@/components/checkout/delivery-estimate";
-import { PerfMarks } from "@/components/perf-marks";
 import { Card } from "@/components/ui";
 import { ApiClientError, getCheckoutSession, getEventWithListings, getListing } from "@/lib/api";
 import { clientContext } from "@/lib/surface";
 
 /**
- * A Server Component that fetches the session server-side and renders the
- * complete checkout summary into the initial HTML: event, seats, itemised
- * price, drift banner, and a countdown already showing a real number. No
- * client-side fetch on first load, and no spinner for anything the fan needs in
- * order to decide.
+ * Renders the complete checkout summary into the initial HTML: event, seats,
+ * itemised price, drift banner, and a countdown already showing a real number.
+ * No client-side fetch on first load.
  *
- * `force-dynamic` because a checkout session is the least cacheable object in
- * the system — serving an `expiresAt` from a cache is worse than serving
- * nothing.
+ * `force-dynamic` because serving an `expiresAt` from a cache is worse than
+ * serving nothing.
  */
 export const dynamic = "force-dynamic";
 
@@ -51,8 +47,6 @@ export default async function CheckoutPage({
 
   return (
     <main className="mx-auto max-w-2xl px-5 py-10">
-      <PerfMarks route="checkout-web" />
-
       <Link
         href={`/events/${view.session.eventId}`}
         className="text-sm text-slate-500 hover:underline"
@@ -91,7 +85,7 @@ export default async function CheckoutPage({
           thing in the tree, and nothing moves when it resolves. */}
       <div className="mt-4">
         <Suspense fallback={<DeliveryEstimateSkeleton />}>
-          <DeliveryEstimate listingId={view.session.listingId} />
+          <DeliveryEstimate listing={listing} />
         </Suspense>
       </div>
 

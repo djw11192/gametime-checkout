@@ -1,0 +1,25 @@
+{
+  "name": "gametime-checkout",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Checkout continuity prototype — resume a ticket purchase across web and mobile",
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"pnpm --filter @gametime/api dev\" \"pnpm --filter @gametime/web dev\"",
+    "build": "pnpm --filter @gametime/contracts build && pnpm --filter @gametime/api build && pnpm --filter @gametime/web build",
+    "test": "pnpm -r --sequential test",
+    "test:watch": "pnpm --filter @gametime/api test:watch",
+    "tunnel": "ngrok http 3000",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "unrs-resolver"]
+  }
+}

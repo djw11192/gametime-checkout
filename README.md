@@ -26,8 +26,9 @@ overrides that if you need a different address.
 3. **Sell out the listing.** Both surfaces reach a recovery state; the API refuses the purchase.
 4. **Expire now.** Both flip to a recovery screen offering the same seats at the current price.
 
-Nothing reloads — every change arrives over SSE. Each beat is also asserted headlessly in
-[`checkout.integration.test.ts`](apps/api/src/routes/checkout.integration.test.ts).
+Nothing reloads — every change arrives over SSE. Each beat is also asserted headlessly in [`checkout.integration.test.ts`](apps/api/src/routes/checkout.integration.test.ts).
+
+**NOTE**: Demo mode will never update inventory of a listing. This is so we can test purchasing scenarios easily without needing to restart the server.
 
 ---
 

@@ -28,7 +28,7 @@ overrides that if you need a different address.
 
 Nothing reloads — every change arrives over SSE. Each beat is also asserted headlessly in [`checkout.integration.test.ts`](apps/api/src/routes/checkout.integration.test.ts).
 
-**NOTE**: Demo mode will never update inventory of a listing. This is so we can test purchasing scenarios easily without needing to restart the server.
+**NOTE**: The demo listing's stock never decreases from completed purchases (so repeated demo runs don't exhaust it), but you can still simulate availability changes via the scenario console's inventory control.
 
 ---
 

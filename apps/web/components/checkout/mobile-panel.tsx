@@ -97,7 +97,7 @@ export function MobilePanel({
 
             {completing ? (
               <div className="mt-4">
-                <CompletingState view={view} />
+                <CompletingState view={view} surface="mobile" />
               </div>
             ) : null}
 

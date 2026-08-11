@@ -91,7 +91,7 @@ export function CheckoutPanel({
       </div>
 
       {session.status === "completing" ? (
-        <CompletingState view={view} />
+        <CompletingState view={view} surface="web" />
       ) : (
         <>
           <CompleteForm view={view} surface="web" idempotencyKey={idempotencyKey} />

@@ -38,7 +38,7 @@ export async function completeCheckoutAction(
   const surface = surfaceOf(formData);
 
   try {
-    await completeCheckout(
+    const result = await completeCheckout(
       sessionId,
       {
         quoteHash: String(formData.get("quoteHash")),
@@ -48,6 +48,15 @@ export async function completeCheckoutAction(
       String(formData.get("idempotencyKey")),
     );
     revalidatePath(pathFor(surface, sessionId));
+
+    // A declined card or processor error comes back as a 200 with no order:
+    // the API settled the session rather than throwing, since a retryable
+    // refusal leaves the checkout active. Surface it the same as a thrown
+    // error so the fan sees why nothing happened.
+    const failure = result.session.session.completion?.failure;
+    if (!result.order && failure) {
+      return { status: "error", message: failure.message };
+    }
     return { status: "ok" };
   } catch (error) {
     // A refusal here is not really an error: it is the API telling the fan

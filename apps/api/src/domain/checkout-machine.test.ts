@@ -179,7 +179,7 @@ describe("the transition table", () => {
 /* ── the expiry boundary ──────────────────────────────────────────────────── */
 
 describe("submitting as the clock runs out", () => {
-  it("honours a purchase that lands just past the deadline", () => {
+  it("honors a purchase that lands just past the deadline", () => {
     // The fan pressed the button before the clock ran out; the rest of the
     // delay was ours. See `hasElapsed` for why this one command gets extra time.
     const result = reduce(session(), beginCompletion(), {

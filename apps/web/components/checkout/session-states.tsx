@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { formatCents, type CheckoutSessionView, type EventRecord } from "@gametime/contracts";
+import {
+  formatCents,
+  type CheckoutSessionView,
+  type EventRecord,
+  type Surface,
+} from "@gametime/contracts";
 import { buttonClass } from "@/components/ui";
 
 /**
@@ -124,9 +129,21 @@ function Panel({
   );
 }
 
-/** Not finished, but nothing to do here either: another device is completing it. */
-export function CompletingState({ view }: { view: CheckoutSessionView }) {
-  const pending = view.session.completion?.status === "pending";
+/**
+ * Not finished yet. Shown on both surfaces while a completion is in flight, but
+ * only the surface that did NOT start it should hear "don't buy again" — the
+ * one that did already knows, it's the one waiting on its own request.
+ */
+export function CompletingState({
+  view,
+  surface,
+}: {
+  view: CheckoutSessionView;
+  surface: Surface;
+}) {
+  const { completion } = view.session;
+  const pending = completion?.status === "pending";
+  const startedHere = completion?.startedBySurface === surface;
 
   return (
     <div className="rounded-xl bg-brand-50 p-5 text-sm text-brand-700 dark:bg-brand-700/15 dark:text-brand-100">
@@ -140,8 +157,9 @@ export function CompletingState({ view }: { view: CheckoutSessionView }) {
             {pending ? "Confirming with your bank" : "Completing this purchase"}
           </p>
           <p className="mt-0.5">
-            Finishing on your {view.session.completion?.startedBySurface === "mobile" ? "phone" : "other device"}.
-            Don&apos;t buy again — you&apos;d be charged twice.
+            {startedHere
+              ? "Hang tight, this only takes a few seconds."
+              : `Finishing on your ${completion?.startedBySurface === "mobile" ? "phone" : "other device"}. Don't buy again — you'd be charged twice.`}
           </p>
         </div>
       </div>

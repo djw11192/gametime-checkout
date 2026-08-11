@@ -88,7 +88,6 @@ export function DemoConsole({
                 [
                   ["approve", "Approve"],
                   ["decline", "Decline"],
-                  ["pending", "Pending (3DS)"],
                   ["slow", "Slow (4s)"],
                   ["error", "Error"],
                 ] as const
@@ -100,12 +99,6 @@ export function DemoConsole({
                   onClick={() => run(mode, "payment-mode", { mode })}
                 />
               ))}
-              <Control
-                label="Settle pending"
-                tone="primary"
-                busy={busy === "settle"}
-                onClick={() => run("settle", "settle-pending", { sessionId, approve: true })}
-              />
             </div>
             <p className="mt-3 text-[11px] leading-snug text-slate-500">
               For the duplicate-order guard: set <strong>Slow</strong>, then press Complete on both

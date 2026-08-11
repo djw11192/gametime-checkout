@@ -21,7 +21,7 @@ import { parseBody } from "../lib/validate";
  */
 export function scenarioRouter(container: Container): Router {
   const router = Router();
-  const { inventory, payments, checkout, clock, sessions } = container;
+  const { inventory, payments, checkout, clock, sessions, bus } = container;
 
   /** Move a listing's price; every open session on it is pushed the new quote. */
   router.post("/price", async (req, res) => {
@@ -57,7 +57,13 @@ export function scenarioRouter(container: Container): Router {
     );
     if (body.inSeconds === 0) await checkout.sweepExpired();
 
-    res.json({ session: await checkout.getSession(body.sessionId) });
+    // The write above goes straight to the store, bypassing the state machine's
+    // own publish step, so open tabs would otherwise hear nothing until the
+    // sweeper happens to catch it. Push the new deadline now so the countdown
+    // updates immediately instead of silently expiring later.
+    const view = await checkout.getSession(body.sessionId);
+    bus.publish(body.sessionId, "session.updated", view);
+    res.json({ session: view });
   });
 
   /** Stands in for the payment processor's webhook resolving a pending charge. */

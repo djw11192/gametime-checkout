@@ -13,7 +13,7 @@ Open **http://localhost:3000/demo** — one session on two surfaces, with the le
 pull the inventory, break the payment processor, and run the clock out.
 
 For a real phone: put the phone on the same Wi-Fi and open the app at your machine's network address
-(`http://192.168.x.x:3000`) rather than `localhost`. The handoff QR encodes whichever host served the
+(Ex: `http://192.168.x.x:3000`) rather than `localhost`. The handoff QR encodes whichever host served the
 page, so it then points at something the phone can reach. `PUBLIC_ORIGIN` in `apps/web/.env.local`
 overrides that if you need a different address.
 
@@ -90,20 +90,17 @@ The session/checkout id is the resume mechanism, and it is in the URL. `/link/{i
 
 ### The live channel
 
-The API pushes live updates to the browser over **SSE (Server-Sent Events)** — a one-way stream
-built on plain HTTP. It was chosen over WebSockets for three reasons: updates only ever flow
-server → client, so a two-way connection isn't needed; it's plain HTTP, so no special upgrade
-handling or sticky sessions; and the browser's built-in `EventSource` API reconnects on its own if
-the connection drops. If it can't connect at all, the client falls back to polling and shows that
-it's doing so.
+The API pushes live updates over **SSE (Server-Sent Events)** — a one-way HTTP stream. It beats
+WebSockets here: updates only flow server → client, it needs no upgrade handling or sticky
+sessions, and the browser's `EventSource` reconnects on its own. If it can't connect at all, the
+client falls back to polling and shows that it's doing so.
 
-**Catching up after a disconnect.** If a fan's phone locks and reconnects a minute later, it would
-normally miss every update sent while it was asleep. To prevent that, each session keeps a buffer
-of its last 50 events. On reconnect, the client tells the server the last event id it saw (SSE's
-built-in `Last-Event-ID` header), and the server resends only what was missed.
+**Catching up after a disconnect.** Each session buffers its last 50 events. On reconnect, the
+client sends the last event id it saw (`Last-Event-ID`), and the server resends only what it
+missed.
 
-**Picking the newest update.** Because a reconnect can resend things the client already has, the
-client needs a rule for "is this actually new?" It checks two things, in order:
+**Picking the newest update.** A reconnect can resend things the client already has, so it needs a
+rule for "is this actually new?":
 
 ```ts
 incoming.session.version !== cached.session.version
@@ -111,18 +108,12 @@ incoming.session.version !== cached.session.version
   : (incoming.serverTime > cached.serverTime ? incoming : cached)            // nothing was written
 ```
 
-1. **Did the session get written to?** Every write bumps `session.version`. A higher version is
-   always newer.
-2. **If the version is unchanged, did anything else about the view change?** A price change is the
-   listing changing, not the session — so it doesn't bump the version. In that case, whichever
-   update has the later `serverTime` wins.
-
-Both checks are necessary: version alone would ignore every price change, since they all arrive at
-the same version; timestamp alone could let a resent update walk a *completed* checkout back to
-`active`, turning a confirmation screen back into a buy button. Both are pinned in
-[`merge-session-view.test.ts`](apps/web/hooks/merge-session-view.test.ts). This timestamp
-comparison only works because there's one server; across several servers the tiebreak would need a
-real sequence number instead of a clock.
+Every write bumps `session.version`, so a higher version always wins. A price change moves the
+*listing*, not the session, so it doesn't bump the version — then the later `serverTime` wins
+instead. Version alone would miss every price change; timestamp alone could let a resent update
+walk a *completed* checkout back to `active`. Both are pinned in
+[`merge-session-view.test.ts`](apps/web/hooks/merge-session-view.test.ts) — and only work because
+there's one server; multiple servers would need a real sequence number instead of a clock.
 
 ---
 
@@ -131,80 +122,75 @@ real sequence number instead of a clock.
 ### Duplicate orders — four guards
 
 The ordering in [`completeSession`](apps/api/src/services/checkout-service.ts) is the answer. Each
-guard catches a case the others cannot:
+guard catches a case the others can't:
 
 1. **`Idempotency-Key`** — the same device retrying. Claimed *before* the work starts, so a retry
-   landing during a slow payment call finds the in-flight record instead of starting a second charge.
+   landing mid-payment-call finds the in-flight record instead of starting a second charge.
 2. **The already-completed check** — a request arriving after the order exists returns `200` with
-   that order, because the retry did in fact succeed.
-3. **The version check on the write into `completing`** — two devices racing. The one that loses gets
-   `409 COMPLETION_IN_PROGRESS` carrying `startedBySurface`, so the UI can say *"completing on your
-   phone"* rather than show an error.
-4. **`UNIQUE (session_id)` on orders** — the only guard a caller cannot bypass. It holds even if a
-   future refactor forgets the other three exist.
+   that order, since the retry did succeed.
+3. **The version check on the write into `completing`** — two devices racing. The loser gets `409
+   COMPLETION_IN_PROGRESS` carrying `startedBySurface`, so the UI can say *"completing on your
+   phone"* instead of showing an error.
+4. **`UNIQUE (session_id)` on orders** — the only guard a caller can't bypass, and the backstop if a
+   future refactor drops the other three.
 
-**The critical detail is where the `await` sits.** Node being single-threaded does not make this
-safe on its own: a handler that reads a session, `await`s a payment call, then writes it back has let
-other work run in between, and a second request slips in exactly there. What makes it safe is that
-the version check and the write happen with no `await` between them, and that the lock is taken
-**strictly before** the payment provider is called. `putIfVersion` maps directly onto a small Redis
-Lua script.
+**Where the `await` sits is the critical detail.** Node's single thread doesn't make this safe by
+itself — a handler that reads a session, `await`s a payment call, then writes it back leaves a gap
+for a second request to slip in. Safety comes from taking the lock (version check + write, no
+`await` between them) **strictly before** calling the payment provider. `putIfVersion` maps
+directly onto a small Redis Lua script.
 
 ### Price changes
 
-Every quote carries a `hash` over the priced fields, so comparing two hashes answers "is this still
-the same price?" — the same idea as an HTTP `ETag`. Completion requires
-**two** things: the hash the fan clicked with must be the live one, *and* the session must already
-have that hash **acknowledged**. Only the first is satisfiable by a client refreshing — the second is
-what makes *"we never charge an unseen price"* a property of the server rather than a promise about
-the frontend. Price drops work identically: the confirmation total must be the total the fan agreed
-to, in both directions.
+Every quote carries a `hash` over the priced fields — the same idea as an HTTP `ETag` — so
+comparing hashes answers "is this still the same price?" Completion requires **two** things: the
+hash the fan clicked with must be the live one, *and* the session must already have that hash
+**acknowledged**. A client can satisfy the first just by refreshing; only the second makes *"we
+never charge an unseen price"* a server guarantee rather than a frontend promise. Price drops work
+the same way, in both directions.
 
 ### Stale inventory
 
 **There is deliberately no hard hold.** Gametime is a secondary marketplace — listings are
-third-party inventory that can sell on another channel at any moment. Locking seats the way a primary
-vendor does would misrepresent the domain and hide the failure a continuity feature has to handle:
-the tickets a fan is looking at stop existing while they are away.
+third-party inventory that can sell on another channel at any moment. Locking seats like a primary
+vendor would misrepresent the domain and hide the exact failure continuity has to handle: the
+tickets a fan is looking at can stop existing while they're away.
 
-So inventory is checked three times, each catching something different — on read for the banner, when
-the completion lock is taken (the last point we can refuse *before spending money*), and after
-authorization but before the order is written (the only authoritative one).
+Inventory is checked three times, each catching something different: on read (for the banner), when
+the completion lock is taken (the last point to refuse *before spending money*), and after
+authorization but before the order is written (the only authoritative check).
 
-**No hold means someone has to pay for the failure, and here that means releasing the charge.** Two
-fans can both be authorized for the last pair of seats, and the one who loses has a live hold on
-their card by the time we find out. `finalizeOrder` guarantees that *any exit that does not produce
-an order releases that hold*, using one `finally` over the whole body so a new exit added later
-cannot silently skip it.
+**No hold means someone has to pay for the failure — here, that's releasing the charge.** Two fans
+can both be authorized for the last pair of seats, and the loser has a live hold on their card by
+the time we find out. `finalizeOrder` guarantees *any exit that doesn't produce an order releases
+that hold*, via one `finally` over the whole body so a future exit path can't silently skip it.
 
 ### Expiration
 
-Both mechanisms, because either alone is a bug: **on read**, so a fan refreshing never sees a
-live-looking session whose clock has run out; and **a 1-second sweeper**, because an idle fan's open
-tabs still need telling, and expiring only on read sends them no event at all. The countdown runs off
-an absolute `expiresAt`, corrected for a device clock that is set wrong, so a phone twenty minutes
-fast does not show an expired checkout.
+Checked two ways, because either alone is a bug: **on read**, so a refreshing fan never sees a
+live-looking session whose clock ran out; and **a 1-second sweeper**, so an idle fan's open tabs
+still get told (reading alone sends them no event). The countdown runs off an absolute `expiresAt`,
+corrected for a wrong device clock, so a phone twenty minutes fast never shows an expired checkout.
 
-A deadline enforced with `expiresAt <= now` gets the boundary wrong twice, and both cost the fan a
-checkout they should have had:
+A plain `expiresAt <= now` gets the boundary wrong twice, each costing the fan a checkout they
+should have had:
 
 - **The click that beat the clock.** Submitting before the deadline and being *evaluated* before it
-  are not the same instant, so `BEGIN_COMPLETION` alone gets `COMPLETION_GRACE_MS` of extra time.
-  Extend and cancel get none — those are a fan acting on a dead screen, not a request that was
-  already on its way. The extra time is never visible (the countdown still hits 0:00 at `expiresAt`),
-  and the sweeper respects the same margin, or it would be a coin flip which landed first.
-- **The deadline that kept running during payment.** Until the lock is taken, the clock measures how
-  long the fan may shop; after it, they have committed and the remaining time is ours. So
-  `BEGIN_COMPLETION` pushes `expiresAt` out by `COMPLETION_WINDOW_MS` in the same write. Otherwise a
-  submit at 9:58 whose card declines at 10:01 sends them back to the start instead of letting them
-  try another card.
+  aren't the same instant, so `BEGIN_COMPLETION` alone gets `COMPLETION_GRACE_MS` of extra time — a
+  fan acting on an already-dead screen (extend, cancel) gets none. The grace is invisible (the
+  countdown still hits 0:00 at `expiresAt`), and the sweeper honors the same margin so it isn't a
+  coin flip which one fires first.
+- **The deadline that kept running during payment.** Before the lock, the clock measures shopping
+  time; after it, the fan has committed and the remaining time is ours. So `BEGIN_COMPLETION` pushes
+  `expiresAt` out by `COMPLETION_WINDOW_MS` in the same write — otherwise a submit at 9:58 whose
+  card declines at 10:01 sends them back to square one instead of letting them try another card.
 
 ### Retention
 
-Nothing is deleted at completion, and that is the point: guard 2 needs the completed session to turn
-a late retry into `200 { order }`, and the fan's other device needs it to show a confirmation it has
-not seen yet. Finishing a checkout only marks it done; the sweeper actually deletes it a retention
-period later. In Redis that would be an `EXPIRE` set the moment the session finished, not a scan.
+Nothing is deleted at completion, on purpose: guard 2 needs the completed session to turn a late
+retry into `200 { order }`, and the fan's other device needs it to show a confirmation it hasn't
+seen yet. Finishing a checkout only marks it done — the sweeper deletes it a retention period
+later. In Redis that would be an `EXPIRE` set the moment the session finished, not a scan.
 
 ---
 
@@ -224,43 +210,69 @@ POST   /api/_scenario/*                          dev only
 ---
 
 
-## Analytics
+## Tradeoffs
 
-**Product analytics (Mixpanel, PostHog).** Funnels, retention and cohorts with no pipeline to run,
-and a PM can ask a new question without an engineer. But a client-side library loses events to ad
-blockers and to Safari's tracking protection, and on a checkout the fans you lose are exactly the
-ones you care about — privacy-conscious, Safari, mobile. Worse here specifically: web plus a native
-app means two client libraries and a vendor guessing which device is which person, and *that guess
-is the exact thing being measured*. Building the continuity number on top of it would measure the
-vendor's heuristic as much as the feature.
-
-**Our own capture endpoint → Pub/Sub → BigQuery.** Emitted server-side, so nothing is blocked and
-there is no guessing which device belongs to which person — the session id already links them, which
-is the point of the whole design. It lands in the same warehouse as orders, listings and payments, so
-"did multi-surface sessions convert better" is one SQL join rather than a vendor export.
-
-**Where I'd land:** both, split by whether the number has to agree with money. Product analytics for
-exploratory funnels, where being able to ask quickly beats being complete and some loss is
-tolerable. The warehouse stream for conversion rate, duplicates blocked and drift accepted — those
-have to match the orders table exactly.
+- **In-memory stores, not Postgres/Redis** — fast to build and test; the race-condition guards
+  (`putIfVersion`, idempotency claims) are written to map directly onto what Redis gives for free
+  (`EXPIRE`, Lua scripts) — see *What I'd do differently* → Data storage.
+- **NextJS over React + Vite** - chose NextJS to address the prompt more closely at expense of faster dev/builds and simpler mental model.
+- **SSE, not WebSockets** — the right call for one-way updates today, but it caps this at a single
+  server; scaling out needs a pub/sub fan-out layer (see *The live channel*).
+- **No hard hold on inventory** — matches how a secondary marketplace actually behaves, at the cost
+  of needing release-on-failure logic for holds that lose the race (see *Stale inventory*).
+- **Timestamp tiebreak assumes one server clock** — multiple servers would need a
+  real sequence number instead (see *Picking the newest update*).
+- **Short retention window, not permanent storage** — keeps memory bounded, but a completed
+  session is only viewable for a limited time afterward (see *Retention*).
+- **Checkout id in the URL is the entire resume mechanism** — no auth, so anyone with the link can
+  open the session; intentional for a prototype (see *What I'd do differently* → Auth).
 
 ---
 
 
-### Out of scope
+## Analytics
 
-Left out on purpose, to keep this a focused slice rather than a shallow checkout clone:
+**Product analytics (Mixpanel, PostHog)** answers exploratory questions fast — no pipeline, no
+engineer required for a new funnel. But a client-side library loses events to ad blockers and
+Safari's tracking protection, disproportionately from the fans this feature is for. Worse here
+specifically: web plus a native app means two client libraries and a vendor *guessing* which device
+is which person — exactly the thing continuity is supposed to measure.
 
-- **Payment** — stubbed behind a `PaymentProvider` interface with approve / decline / pending / error
-  modes. No forms, no real payment processor.
-- **Auth** — In a real product, we would create a tokenized version of the checkout id. For an unauthenticated user, this works fine for loading the checkout session, but we would exclude any user-specific data (name, address, billing). For an authenticated user, the second device would send our JWT auth token in a header and our backend would validate that the session belongs to that user. 
-- **Message broker** — Thinking of things like audit logs, moving data to a data warehouse, and notifications such as order confirmation. We want to use something like pub/sub or Kafka to offload this work to other services or processes.
-- **Analytics aggregation** — the events are in the codebase as an example. We'd most likely use a third-party service like Posthog or Mixpanel for detailed frontend user behavior, while still using pub/sub to BigQuery for other metrics. See the ""
-- **Data Storage** - In a real product I would use Postgres as my main database and Redis for checkout sessions and transaction locks. We would want to look into proper indexing, using TTLs, redis as a cache layer, etc.
-- **Event Search** - For a product at the scale of Gametime, I would want to use something like ElasticSearch for the events page. This assumes I need complex querying and search capability, which I think we would need.
-- **Multiple Servers** - If our api service is horizontally scaled, we need to revise how SSE works. One device can be connected to server A while the other is connected to server B. With something like pub/sub, we can ensure both servers are broadcasting SSE to the appropriate connections. 
-- **Accessibility** - We would need to do a more thorough review or use third-party tools.
-- **Time Issues** - Handling different timezones and device time issues.
+**A server-side capture endpoint → Pub/Sub → BigQuery** avoids both problems: nothing is blocked,
+and the session id already links devices, so there's no guessing. It also lands in the same
+warehouse as orders and listings, making "did multi-surface sessions convert better" one SQL join.
+
+**Where I'd land:** both, split by whether the number has to agree with money. Product analytics
+for exploratory funnels, where speed beats completeness. The warehouse stream for anything that has
+to match the orders table exactly — conversion rate, duplicates blocked, drift accepted.
+
+---
+
+
+## Out of scope & what I'd do differently
+
+Left out on purpose, to keep this a focused slice rather than a shallow checkout clone — this
+doubles as the "with more time" list:
+
+- **Payment** — stubbed behind a `PaymentProvider` interface with approve / decline / pending /
+  error modes. No forms, no real processor.
+- **Auth** — a tokenized version of the checkout id. Unauthenticated, that's enough to load the
+  session while excluding user-specific data (name, address, billing). Authenticated, the second
+  device sends our JWT in a header and the backend validates the session belongs to that user.
+- **Message broker** — pub/sub or Kafka to offload audit logs, warehouse writes, and notifications
+  (order confirmation) to other processes instead of doing them inline.
+- **Analytics aggregation** — the events are in the codebase as an example. In practice: a
+  third-party tool (PostHog/Mixpanel) for frontend behavior, plus pub/sub → BigQuery for metrics
+  that need to match the orders table (see *Analytics* above).
+- **Data storage** — Postgres as the primary database, Redis for checkout sessions; with
+  real indexing, TTLs, and Redis as a cache layer.
+- **Event search** — something like Elasticsearch for the events page, once it needs real querying
+  and search rather than a simple list.
+- **Multiple servers** — horizontally scaling the API means one device can be on server A while the
+  other is on server B; SSE needs pub/sub to broadcast across both.
+- **Accessibility** — a proper audit, likely with third-party tooling.
+- **Time zones and device clocks** — handling both correctly across surfaces.
+- **More testing** - I kept tests simple and tried focusing on some of the key scenarios. I could be more thorough and write e2e tests
 
 
 ## Agent Usage

@@ -212,16 +212,12 @@ POST   /api/_scenario/*                          dev only
   (`putIfVersion`, idempotency claims) are written to map directly onto what Redis gives for free
   (`EXPIRE`, Lua scripts) — see *What I'd do differently* → Data storage.
 - **NextJS over React + Vite** - chose NextJS to address the prompt more closely at expense of faster dev/builds and simpler mental model.
-- **SSE, not WebSockets** — the right call for one-way updates today, but it caps this at a single
-  server; scaling out needs a pub/sub fan-out layer (see *The live channel*).
-- **No hard hold on inventory** — matches how a secondary marketplace actually behaves, at the cost
-  of needing release-on-failure logic for holds that lose the race (see *Stale inventory*).
-- **Timestamp tiebreak assumes one server clock** — multiple servers would need a
-  real sequence number instead (see *Picking the newest update*).
-- **Short retention window, not permanent storage** — keeps memory bounded, but a completed
-  session is only viewable for a limited time afterward (see *Retention*).
-- **Checkout id in the URL is the entire resume mechanism** — no auth, so anyone with the link can
-  open the session; intentional for a prototype (see *What I'd do differently* → Auth).
+- **SSE, not WebSockets** — the right call for one-way updates today, but it caps this at a single server; scaling out needs a pub/sub fan-out layer (see *The live channel*).
+- **No hard hold on inventory** — matches how a secondary marketplace actually behaves, at the cost of needing release-on-failure logic for holds that lose the race (see *Stale inventory*).
+- **Timestamp tiebreak assumes one server clock** — multiple servers would need a real sequence number instead (see *Picking the newest update*).
+- **Short retention window, not permanent storage** — keeps memory bounded, but a completed session is only viewable for a limited time afterward (see *Retention*).
+- **Checkout id in the URL is the entire resume mechanism** — no auth, so anyone with the link can open the session; intentional for a prototype (see *What I'd do differently* → Auth).
+- **Monorepo structure** - Comes with build and deployment complexity, but shared contracts prevent drift between frontend and backend.
 
 ---
 

@@ -142,12 +142,7 @@ directly onto a small Redis Lua script.
 
 ### Price changes
 
-Every quote carries a `hash` over the priced fields — the same idea as an HTTP `ETag` — so
-comparing hashes answers "is this still the same price?" Completion requires **two** things: the
-hash the fan clicked with must be the live one, *and* the session must already have that hash
-**acknowledged**. A client can satisfy the first just by refreshing; only the second makes *"we
-never charge an unseen price"* a server guarantee rather than a frontend promise. Price drops work
-the same way, in both directions.
+Every quote carries a `hash` over the priced fields, so comparing hashes answers "is this still the same price?" Completion requires **two** things: the hash the fan clicked with must be the live one, *and* the session must already have that hash **acknowledged**. A client can satisfy the first just by refreshing; only the second makes *"we never charge an unseen price"* a server guarantee rather than a frontend promise. Price drops work the same way, in both directions.
 
 ### Stale inventory
 

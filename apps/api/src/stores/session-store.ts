@@ -18,6 +18,8 @@ export interface SessionStore {
   insert(session: CheckoutSession): Promise<void>;
   putIfVersion(next: CheckoutSession, expectedVersion: number): Promise<CasResult>;
   scanExpired(nowMs: number): Promise<CheckoutSession[]>;
+  /** Locked into a completion attempt that has outlived its own deadline. */
+  scanStalledCompletions(nowMs: number): Promise<CheckoutSession[]>;
   /** Finished, and untouched since `beforeMs` — safe to delete. */
   scanReapable(beforeMs: number): Promise<CheckoutSession[]>;
   delete(id: string): Promise<void>;
@@ -65,6 +67,17 @@ export class InMemorySessionStore implements SessionStore {
   async scanExpired(nowMs: number): Promise<CheckoutSession[]> {
     return [...this.sessions.values()].filter(
       (s) => s.status === "active" && new Date(s.expiresAt).getTime() <= nowMs,
+    );
+  }
+
+  /**
+   * The counterpart to `scanExpired`, for the one status that no deadline
+   * otherwise touches. `BEGIN_COMPLETION` pushes `expiresAt` out to cover the
+   * attempt, so the same field answers "has this attempt run out of time?"
+   */
+  async scanStalledCompletions(nowMs: number): Promise<CheckoutSession[]> {
+    return [...this.sessions.values()].filter(
+      (s) => s.status === "completing" && new Date(s.expiresAt).getTime() <= nowMs,
     );
   }
 

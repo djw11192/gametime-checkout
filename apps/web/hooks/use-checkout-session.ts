@@ -61,6 +61,21 @@ export function useCheckoutSession(input: {
     refetchInterval: streamState === "polling" ? POLL_FALLBACK_INTERVAL_MS : false,
   });
 
+  /**
+   * Fold each new server render back into the cache.
+   *
+   * `initialData` only seeds an empty cache entry, so without this every view
+   * produced by a Server Action's `revalidatePath` is dropped on the floor —
+   * accepting a new price would succeed on the server while the banner stayed
+   * up. It goes through the same merge as a pushed update, so a server render
+   * that raced an SSE message cannot walk the session backwards.
+   */
+  useEffect(() => {
+    queryClient.setQueryData<CheckoutSessionView>(["checkout", sessionId], (cached) =>
+      mergeSessionView(cached, initialView),
+    );
+  }, [queryClient, sessionId, initialView]);
+
   useEffect(() => {
     const source = new EventSource(`/api/checkout/sessions/${sessionId}/events`);
 

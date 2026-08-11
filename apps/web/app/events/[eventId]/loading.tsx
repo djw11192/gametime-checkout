@@ -3,10 +3,6 @@ import { Card, Skeleton } from "@/components/ui";
 /**
  * Without this file the router has nothing to show while navigating, so the
  * click feels unresponsive no matter how fast the server is.
- *
- * Deliberately not added to `/checkout/[sessionId]`. That page exists to put a
- * complete summary in the first HTML, and a loading screen at the route level
- * would replace exactly that.
  */
 export default function LoadingEvent() {
   return (

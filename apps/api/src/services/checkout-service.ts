@@ -409,6 +409,52 @@ export class CheckoutService {
   }
 
   /**
+   * Give up on completion attempts that never came back.
+   *
+   * `sweepExpired` only looks at `active` sessions, and no command settles a
+   * `completing` one except the request that started it — so an authorization
+   * left `pending` by a webhook that never arrives, or a request that died
+   * between taking the lock and settling, would otherwise hold the checkout
+   * forever: never expired, never reaped, both surfaces stuck on "completing".
+   *
+   * Settling comes first and the release second, deliberately. `settle` is
+   * compare-and-swap protected, so winning it is what proves no webhook is
+   * about to resolve this attempt; voiding a hold we had not yet claimed the
+   * right to void could cancel an authorization that then becomes an order.
+   */
+  async sweepStalledCompletions(): Promise<number> {
+    const { sessions, payments, idempotency, clock } = this.deps;
+    const stalled = await sessions.scanStalledCompletions(clock.nowMs());
+    let swept = 0;
+
+    for (const candidate of stalled) {
+      try {
+        await this.settle(candidate.id, {
+          kind: "failed",
+          code: "payment_error",
+          // Not retryable: this checkout is over. The fan is told plainly
+          // rather than left to wonder, and can start again at the live price.
+          retryable: false,
+          message: "We couldn't confirm this payment in time, so we released the hold.",
+        });
+      } catch {
+        // Raced the webhook, or the original request finally settled. Either
+        // way somebody else resolved this attempt and owns releasing it.
+        continue;
+      }
+
+      // Only now that the outcome is committed. `void` is safe to call twice,
+      // so a webhook arriving late cannot double-release.
+      if (candidate.completion?.authorizationId) {
+        await payments.void(candidate.completion.authorizationId);
+      }
+      if (candidate.completion) idempotency.release(candidate.completion.idempotencyKey);
+      swept += 1;
+    }
+    return swept;
+  }
+
+  /**
    * Delete checkouts that finished long enough ago that nobody is coming back.
    *
    * Finishing a checkout only marks it done; this is what actually removes it,

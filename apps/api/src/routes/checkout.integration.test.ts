@@ -3,6 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import {
   COMPLETION_GRACE_MS,
+  COMPLETION_WINDOW_MS,
   SESSION_TTL_MS,
   TERMINAL_RETENTION_MS,
   type CheckoutSessionView,
@@ -496,6 +497,35 @@ describe("payment outcomes", () => {
 
     expect(settled.body.session.session.status).toBe("completed");
     expect(container.orders.count()).toBe(1);
+  });
+
+  it("gives up on a pending authorization whose webhook never arrives", async () => {
+    const created = await createSession();
+    const hash = created.liveQuote!.hash;
+    await setPaymentMode("pending");
+
+    await complete(created.session.id, { hash, key: "key-stalled" }).expect(202);
+
+    // Still inside the window the attempt was granted: nothing to give up on.
+    expect(await container.checkout.sweepStalledCompletions()).toBe(0);
+
+    // The webhook never comes.
+    clock.advance(SESSION_TTL_MS + COMPLETION_WINDOW_MS);
+    expect(await container.checkout.sweepStalledCompletions()).toBe(1);
+
+    const after = await readSession(created.session.id);
+    expect(after.session.status).toBe("failed");
+    expect(after.session.completion?.failure?.retryable).toBe(false);
+    // The hold is released, so the screen's "nothing was charged" is true.
+    expect(container.payments.voidCount()).toBe(1);
+    expect(container.orders.count()).toBe(0);
+
+    // A webhook arriving after we gave up must not resurrect the charge.
+    await request(app)
+      .post("/api/_scenario/settle-pending")
+      .send({ sessionId: created.session.id, approve: true })
+      .expect(409);
+    expect(container.orders.count()).toBe(0);
   });
 
   it("a processor error is retryable and creates no order", async () => {

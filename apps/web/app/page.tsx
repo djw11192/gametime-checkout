@@ -13,7 +13,10 @@ export const metadata = { title: "Gametime — Tickets" };
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const events = await listEvents();
+  // Prerendered at build time, when the catalogue service may not be running.
+  // `revalidate` above means an empty first render repairs itself within the
+  // minute, which is a better trade than a build that cannot complete.
+  const events = await listEvents().catch(() => []);
 
   return (
     <main className="mx-auto max-w-3xl px-5 py-10">
@@ -31,6 +34,12 @@ export default async function HomePage() {
           Open the demo console →
         </Link>
       </header>
+
+      {events.length === 0 ? (
+        <Card className="p-5 text-sm text-slate-600 dark:text-slate-400">
+          No events loaded yet. Check the API is running on port 4000, then refresh.
+        </Card>
+      ) : null}
 
       <ul className="space-y-3">
         {events.map((event) => (

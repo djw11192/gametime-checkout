@@ -1,10 +1,6 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
-import {
-  formatCents,
-  type CheckoutSessionView,
-  type EventRecord,
-  type Surface,
-} from "@gametime/contracts";
+import { formatCents, type CheckoutSessionView, type Surface } from "@gametime/contracts";
 import { buttonClass } from "@/components/ui";
 
 /**
@@ -13,13 +9,18 @@ import { buttonClass } from "@/components/ui";
  * Each has to answer two questions straight away: was I charged, and what can I
  * do now. A bare "session not found" answers neither, which is why the API
  * keeps returning expired sessions in full rather than a 404.
+ *
+ * `eventName` arrives as a node rather than an `EventRecord` because the event
+ * is not on this page's critical path — the surrounding server component
+ * streams it in, and everything here renders from the session alone until it
+ * lands.
  */
 export function TerminalState({
   view,
-  event,
+  eventName,
 }: {
   view: CheckoutSessionView;
-  event: EventRecord;
+  eventName: ReactNode;
 }) {
   const { session } = view;
   const browse = (
@@ -32,7 +33,7 @@ export function TerminalState({
     return (
       <Panel tone="success" icon="✓" title="You're going">
         <p>
-          {session.quantity} ticket{session.quantity > 1 ? "s" : ""} to {event.shortName}
+          {session.quantity} ticket{session.quantity > 1 ? "s" : ""} to {eventName}
         </p>
         <p className="mt-1 font-semibold">
           Charged {formatCents(session.acceptedQuote.totalCents)}

@@ -1,9 +1,10 @@
+import { Suspense } from "react";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { formatClockTime } from "@gametime/contracts";
 import { DeviceFrame, StatusBar } from "@/components/checkout/device-frame";
 import { MobilePanel } from "@/components/checkout/mobile-panel";
-import { buttonClass } from "@/components/ui";
+import { buttonClass, Skeleton } from "@/components/ui";
 import { ApiClientError, getCheckoutSession, getEventWithListings, getListing } from "@/lib/api";
 import { clientContext } from "@/lib/surface";
 
@@ -12,6 +13,10 @@ export const dynamic = "force-dynamic";
 /**
  * The mobile surface. Same session, same id, same server render as the desktop
  * page — only the layout differs, and nothing about resuming is special-cased.
+ *
+ * It also splits its fetching the same way: the session blocks, the event and
+ * the seats stream in behind it. That matters more here than on desktop, since
+ * this is the surface reached by scanning a code on a phone network.
  *
  * The one thing genuinely specific to mobile is opening cold: a scanned link
  * might be followed hours later, into a checkout that no longer exists. That
@@ -55,21 +60,75 @@ export default async function MobileCheckoutPage({
     );
   }
 
-  const [eventData, listing] = await Promise.all([
-    getEventWithListings(view.session.eventId),
-    getListing(view.session.listingId).catch(() => null),
-  ]);
+  const { session } = view;
 
   return (
     <DeviceFrame>
       <StatusBar label={formatClockTime(view.serverTime)} />
       <MobilePanel
         initialView={view}
-        event={eventData.event}
-        listing={listing}
+        details={
+          <Suspense fallback={<DetailsSkeleton />}>
+            <Details
+              eventId={session.eventId}
+              listingId={session.listingId}
+              quantity={session.quantity}
+            />
+          </Suspense>
+        }
+        eventName={
+          <Suspense fallback={null}>
+            <EventName eventId={session.eventId} />
+          </Suspense>
+        }
         clientId={context.clientId}
         idempotencyKey={randomUUID()}
       />
     </DeviceFrame>
   );
+}
+
+async function Details({
+  eventId,
+  listingId,
+  quantity,
+}: {
+  eventId: string;
+  listingId: string;
+  quantity: number;
+}) {
+  const [eventData, listing] = await Promise.all([
+    getEventWithListings(eventId),
+    getListing(listingId).catch(() => null),
+  ]);
+
+  return (
+    <>
+      <h1 className="text-base font-bold leading-snug">{eventData.event.shortName}</h1>
+      <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
+        {eventData.event.venueName}
+      </p>
+      {listing ? (
+        <p className="mt-2 text-sm font-medium">
+          Section {listing.section} · Row {listing.row} · {quantity} ticket
+          {quantity > 1 ? "s" : ""}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function DetailsSkeleton() {
+  return (
+    <div aria-hidden>
+      <Skeleton className="h-5 w-48" />
+      <Skeleton className="mt-1.5 h-4 w-32" />
+      <Skeleton className="mt-2.5 h-4 w-44" />
+    </div>
+  );
+}
+
+async function EventName({ eventId }: { eventId: string }) {
+  const { event } = await getEventWithListings(eventId);
+  return <>{event.shortName}</>;
 }

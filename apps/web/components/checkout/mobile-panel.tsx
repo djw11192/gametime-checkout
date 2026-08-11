@@ -1,12 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   formatCents,
   formatCentsPrecise,
   isTerminal,
   type CheckoutSessionView,
-  type EventRecord,
-  type Listing,
 } from "@gametime/contracts";
 import { Countdown } from "@/components/countdown";
 import { CompleteForm } from "@/components/checkout/complete-form";
@@ -18,14 +17,15 @@ import { useCheckoutSession } from "@/hooks/use-checkout-session";
 /** The desktop panel's content, laid out for a phone. */
 export function MobilePanel({
   initialView,
-  event,
-  listing,
+  eventName,
+  details,
   clientId,
   idempotencyKey,
 }: {
   initialView: CheckoutSessionView;
-  event: EventRecord;
-  listing: Listing | null;
+  /** Both streamed in by the page; the price and the clock never wait on them. */
+  eventName: ReactNode;
+  details: ReactNode;
   clientId: string;
   idempotencyKey: string;
 }) {
@@ -64,17 +64,10 @@ export function MobilePanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {terminal ? (
-          <TerminalState view={view} event={event} />
+          <TerminalState view={view} eventName={eventName} />
         ) : (
           <>
-            <h1 className="text-base font-bold leading-snug">{event.shortName}</h1>
-            <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">{event.venueName}</p>
-            {listing ? (
-              <p className="mt-2 text-sm font-medium">
-                Section {listing.section} · Row {listing.row} · {session.quantity} ticket
-                {session.quantity > 1 ? "s" : ""}
-              </p>
-            ) : null}
+            {details}
 
             {/* Same reserved height as the desktop panel, for the same reason. */}
             <div className="mt-4 min-h-[7.5rem]">

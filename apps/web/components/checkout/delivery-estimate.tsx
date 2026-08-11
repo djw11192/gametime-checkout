@@ -1,4 +1,4 @@
-import type { Listing } from "@gametime/contracts";
+import { getListing } from "@/lib/api";
 import { Card, Skeleton } from "@/components/ui";
 
 const DELIVERY_COPY: Record<string, { title: string; detail: string }> = {
@@ -18,13 +18,18 @@ const DELIVERY_COPY: Record<string, { title: string; detail: string }> = {
 
 /**
  * Stands in for looking up a delivery partner: worth showing, but not worth
- * making the fan wait on before they can see the price. Rendered inside a
- * Suspense boundary so it can arrive late.
+ * making the fan wait on before they can see the price.
+ *
+ * It does its own fetching rather than taking the listing as a prop, which is
+ * the whole point of the Suspense boundary around it — a prop would have to be
+ * awaited by the page first, putting this back on the critical path and leaving
+ * the boundary with nothing to defer.
  *
  * Its height must match `DeliveryEstimateSkeleton` below, so nothing on the
  * page moves when it appears.
  */
-export async function DeliveryEstimate({ listing }: { listing: Listing | null }) {
+export async function DeliveryEstimate({ listingId }: { listingId: string }) {
+  const listing = await getListing(listingId).catch(() => null);
   // Fake delay, standing in for a call to a delivery partner.
   await new Promise((resolve) => setTimeout(resolve, 250));
 

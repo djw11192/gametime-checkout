@@ -1,12 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useState, type ReactNode } from "react";
 import {
   formatCents,
   formatCentsPrecise,
   isTerminal,
   type CheckoutSessionView,
-  type EventRecord,
 } from "@gametime/contracts";
 import { IDLE } from "@/app/checkout/action-state";
 import { extendSessionAction } from "@/app/checkout/actions";
@@ -24,12 +23,13 @@ import { useCheckoutSession, type StreamState } from "@/hooks/use-checkout-sessi
  */
 export function CheckoutPanel({
   initialView,
-  event,
+  eventName,
   clientId,
   idempotencyKey,
 }: {
   initialView: CheckoutSessionView;
-  event: EventRecord;
+  /** Streamed in by the page; nothing here waits on it. */
+  eventName: ReactNode;
   clientId: string;
   idempotencyKey: string;
 }) {
@@ -46,7 +46,7 @@ export function CheckoutPanel({
   // A finished session cannot change, so there is nothing to warn about if the
   // update stream drops.
   if (isTerminal(session.status)) {
-    return <TerminalState view={view} event={event} />;
+    return <TerminalState view={view} eventName={eventName} />;
   }
 
   return (

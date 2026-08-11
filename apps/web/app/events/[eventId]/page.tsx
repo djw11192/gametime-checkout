@@ -13,6 +13,7 @@ import {
   getEventWithListings,
   listEvents,
 } from "@/lib/api";
+import { rememberOrigin } from "@/lib/origin";
 import { getClientId } from "@/lib/surface";
 import { SubmitButton } from "@/components/submit-button";
 import { Card } from "@/components/ui";
@@ -25,10 +26,18 @@ export const revalidate = 30;
  * Build these pages ahead of time. Any event not listed here is still rendered
  * on first request and cached from then on, since `dynamicParams` defaults to
  * true.
+ *
+ * That fallback is also why an unreachable API here is not fatal: `next build`
+ * has no reason to require a running catalogue service, so prerendering nothing
+ * is better than failing the build.
  */
 export async function generateStaticParams() {
-  const events = await listEvents();
-  return events.map((event) => ({ eventId: event.id }));
+  try {
+    const events = await listEvents();
+    return events.map((event) => ({ eventId: event.id }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -38,6 +47,10 @@ export async function generateStaticParams() {
  */
 async function startCheckout(formData: FormData) {
   "use server";
+
+  // Next renders the post-redirect page via a loopback request, not the fan's
+  // browser — grab the real address now, before headers() stops being honest.
+  await rememberOrigin();
 
   const listingId = String(formData.get("listingId"));
   const quantity = Number(formData.get("quantity") ?? 2);

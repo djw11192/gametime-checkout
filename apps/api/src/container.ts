@@ -62,9 +62,10 @@ export function createContainer(
     checkout,
 
     /**
-     * Two jobs on one timer: expire sessions whose deadline has passed, then
-     * delete the ones that finished long enough ago. Returns a stop function so
-     * tests and hot reload do not leak intervals.
+     * Three jobs on one timer: expire sessions whose deadline has passed, give
+     * up on completion attempts that never came back, then delete the ones that
+     * finished long enough ago. Returns a stop function so tests and hot reload
+     * do not leak intervals.
      */
     startSweeper() {
       const handle = setInterval(() => {
@@ -73,6 +74,7 @@ export function createContainer(
         void (async () => {
           try {
             await checkout.sweepExpired();
+            await checkout.sweepStalledCompletions();
             await checkout.reapTerminal();
           } catch (error) {
             console.error("[sweeper]", error);

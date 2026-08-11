@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { DEMO_LISTING_ID } from "@gametime/contracts";
 import { DemoConsole } from "@/components/demo/demo-console";
 import { buttonClass } from "@/components/ui";
 import { createCheckoutSession } from "@/lib/api";
@@ -8,12 +9,10 @@ import { getClientId } from "@/lib/surface";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Checkout Continuity — Demo Console" };
 
-const DEMO_LISTING = "lst_warriors_lower_112";
-
 async function startDemoSession() {
   "use server";
   const view = await createCheckoutSession({
-    listingId: DEMO_LISTING,
+    listingId: DEMO_LISTING_ID,
     quantity: 2,
     surface: "web",
     clientId: await getClientId(),
@@ -48,5 +47,5 @@ export default async function DemoPage({
     );
   }
 
-  return <DemoConsole sessionId={session} listingId={DEMO_LISTING} />;
+  return <DemoConsole sessionId={session} listingId={DEMO_LISTING_ID} />;
 }

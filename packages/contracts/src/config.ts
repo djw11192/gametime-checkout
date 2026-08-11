@@ -31,3 +31,10 @@ export const EXPIRY_SWEEP_INTERVAL_MS = 1_000;
 
 /** Used only when the live update stream is unavailable. */
 export const POLL_FALLBACK_INTERVAL_MS = 3_000;
+
+/**
+ * The listing `/demo` always checks out. Shared so the API can grant it
+ * unlimited stock (see `InMemoryInventoryProvider`) without the two ends
+ * drifting on which listing that is.
+ */
+export const DEMO_LISTING_ID = "lst_warriors_lower_112";

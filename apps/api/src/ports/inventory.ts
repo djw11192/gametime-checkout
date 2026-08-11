@@ -24,7 +24,13 @@ export class InMemoryInventoryProvider implements InventoryProvider {
   private events = new Map<string, EventRecord>();
   private listings = new Map<string, Listing>();
 
-  constructor() {
+  /**
+   * Listings that never actually deplete on commit, quantity checks still
+   * apply. Exists so `/demo` can be run through repeatedly in front of an
+   * interviewer without the seed data running out and the server needing a
+   * restart.
+   */
+  constructor(private readonly unlimitedListingIds: ReadonlySet<string> = new Set()) {
     this.reset();
   }
 
@@ -55,7 +61,7 @@ export class InMemoryInventoryProvider implements InventoryProvider {
   commit(listingId: string, quantity: number): boolean {
     const listing = this.listings.get(listingId);
     if (!listing || listing.availableQuantity < quantity) return false;
-    listing.availableQuantity -= quantity;
+    if (!this.unlimitedListingIds.has(listingId)) listing.availableQuantity -= quantity;
     return true;
   }
 

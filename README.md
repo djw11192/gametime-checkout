@@ -39,66 +39,42 @@ apps/web            Next.js 15 App Router — desktop + mobile surfaces, demo co
 packages/contracts  Zod schemas shared by both ends
 ```
 
-`packages/contracts` is the API boundary: the server validates inbound requests against those
-schemas and the web app parses every response through them, so a contract change breaks both sides at
-compile time rather than at runtime in front of a fan.
-
-Express is a separate service rather than Next route handlers because the premise is two independent
-surfaces talking to one backend. Server Components fetch from it while rendering, so the browser never
-makes the first request; browser-side calls are proxied same-origin through `next.config.ts`, so the
-phone reaches the API through the same address it loaded the page from.
-
 ---
 
-## The session state model
+## The checkout session state model
 
-Two orthogonal axes — the same split Stripe makes between a Checkout Session's `status` and its
-`payment_status`:
+A checkout session moves through a small set of states:
 
-| Axis | Values |
-| --- | --- |
-| `status` — lifecycle | `active` · `completing` · `completed` · `expired` · `canceled` · `failed` |
-| `completion.status` — the in-flight attempt | `pending` · `succeeded` · `failed` |
-
-```mermaid
-stateDiagram-v2
-    [*] --> active: fan picks a listing
-    active --> completing: BEGIN_COMPLETION (takes the lock)
-    active --> expired: deadline passed
-    active --> canceled: fan abandons
-    completing --> completed: authorized + inventory committed
-    completing --> active: retryable failure (declined card)
-    completing --> failed: terminal failure (inventory gone)
-    completing --> expired: retryable failure after deadline
+```
+active ──begin completion──▶ completing ──payment succeeds──▶ completed
+  │                              │
+  │                              ├─ payment fails, retryable, time left ────▶ active
+  │                              ├─ payment fails, retryable, no time left ─▶ expired
+  │                              └─ payment fails, not retryable ───────────▶ failed
+  │
+  ├─ deadline passes ──▶ expired
+  └─ fan cancels ──▶ canceled
 ```
 
-**"Payment pending" is not a lifecycle state** — it is `completing` + `completion.status: pending`.
-Collapsing the axes is how this rots into `active_but_price_changed_and_payment_pending`. The machine
-is a pure function, small enough to test as a transition matrix in
-[`checkout-machine.test.ts`](apps/api/src/domain/checkout-machine.test.ts); the service around it
-does the I/O and is deliberately dumb — read the session, run the machine, write it back if nobody
-else has, publish what changed.
+- **`active`** — the fan is shopping: reading the listing, watching the price, extending the deadline.
+- **`completing`** — one payment attempt is in flight. The session is locked to whichever surface
+  started it; every other request is told to wait rather than shown an error. More in "Duplicate
+  orders" below.
+- **`completed` / `expired` / `canceled` / `failed`** — terminal. Nothing more can happen to the
+  session itself, though it stays readable for a while — see "Retention" below.
 
-### Stored vs. computed
+The one non-obvious edge is `completing → active`: a declined card doesn't end the checkout, just
+that attempt, so a retryable failure sends the fan back to `active` to try another card — as long as
+the original deadline hasn't actually passed. If it has, they land on `expired` instead; if the
+failure isn't retryable at all (a processor error, say), they land on `failed`.
 
-The persisted session is **the fan's agreement and nothing else** — no cached price, no
-`hasPriceChanged` flag, no stored drift. The world *right now* is recomputed on every read:
+`status` only tracks where the checkout itself is. What the current payment attempt is doing is
+tracked separately, on `session.completion.status` (`pending` / `succeeded` / `failed`) — keeping the
+two apart is what stops the machine from needing values like `active_but_payment_pending`.
 
-```ts
-{
-  session,      // the agreement
-  liveQuote,    // current reality — null if the listing is gone or sold out
-  drift,        // the diff between them
-  remainingMs,  // server-authoritative, so the first HTML paint has a real countdown
-  serverTime,   // lets the client correct a skewed device clock
-  canComplete,  // the server's verdict
-  blockers      // …and why not
-}
-```
-
-Persisting a comparison is how you end up serving a "price went up!" banner for a price that has
-since gone back down. The client holds a cached copy of that view, a per-tab `clientId`, and
-transient UI state — no price, deadline or eligibility decision is computed client-side.
+The whole thing is a pure function — [`checkout-machine.ts`](apps/api/src/domain/checkout-machine.ts)
+— and every transition is pinned as a data-driven matrix in
+[`checkout-machine.test.ts`](apps/api/src/domain/checkout-machine.test.ts).
 
 ---
 
@@ -107,32 +83,27 @@ transient UI state — no price, deadline or eligibility decision is computed cl
 ```
 Desktop   /checkout/{id}
 Mobile    /m/checkout/{id}
-Deep link /link/{id}  →  302 to the mobile surface with ?src=deeplink
+Deep link /link/{id}  →  307 to the mobile surface with ?src=deeplink
 ```
 
-The session id *is* the resume mechanism, and it is the URL. `/link/{id}` is the deep link: a
-universal link is an HTTPS URL exactly like it, claimed by the native app through
-`apple-app-site-association` when installed and falling through to the web when not — which is why a
-deep link should never be a bare custom scheme that dead-ends for everyone without the app.
-
-Both routes are Server Components fetching the same session by the same id; nothing about resuming is
-special-cased. A surface never decides whether the session is valid — every read returns
-`canComplete`, `blockers` and a server-computed `remainingMs`.
+The session/checkout id is the resume mechanism, and it is in the URL. `/link/{id}` mimics a deep link but for prototype purposes always redirects to the mobile view because we have no app. In real life, this should open the app and load the checkout session (although we need to handle if the app isn't installed and an authenticated user vs unauthenticated).
 
 ### The live channel
 
-SSE rather than WebSockets: purely server→client, plain HTTP with no upgrade path or sticky sessions,
-and `EventSource` gives reconnection for free. If the stream drops the client polls instead, and says
-so. Every payload carries the **full view** rather than a patch — full-state pushes are idempotent
-and order-insensitive, where patches would need exactly-once delivery.
+The API pushes live updates to the browser over **SSE (Server-Sent Events)** — a one-way stream
+built on plain HTTP. It was chosen over WebSockets for three reasons: updates only ever flow
+server → client, so a two-way connection isn't needed; it's plain HTTP, so no special upgrade
+handling or sticky sessions; and the browser's built-in `EventSource` API reconnects on its own if
+the connection drops. If it can't connect at all, the client falls back to polling and shows that
+it's doing so.
 
-The detail that matters is **`Last-Event-ID` replay**. Each session keeps a capped buffer of its last
-50 events, so a phone that locks and reconnects sends back the last id it processed and we re-send
-only what it missed. Without it, everything during the gap is lost — the exact failure this feature
-exists to prevent, one layer down.
+**Catching up after a disconnect.** If a fan's phone locks and reconnects a minute later, it would
+normally miss every update sent while it was asleep. To prevent that, each session keeps a buffer
+of its last 50 events. On reconnect, the client tells the server the last event id it saw (SSE's
+built-in `Last-Event-ID` header), and the server resends only what was missed.
 
-Re-sending means the client must drop what it has already seen, and "newer" is decided by two values,
-in order:
+**Picking the newest update.** Because a reconnect can resend things the client already has, the
+client needs a rule for "is this actually new?" It checks two things, in order:
 
 ```ts
 incoming.session.version !== cached.session.version
@@ -140,13 +111,18 @@ incoming.session.version !== cached.session.version
   : (incoming.serverTime > cached.serverTime ? incoming : cached)            // nothing was written
 ```
 
-`session.version` orders **writes to the session**; `serverTime` breaks ties when the session was
-rebuilt without being written, which is exactly what a price change is — the listing moved, the fan's
-agreement did not. Both halves are load-bearing: version alone discards every price change, since
-they all arrive at the same version, and time alone lets a re-sent update walk a completed checkout
-back to `active`, turning a confirmation into a buy button. Both are pinned in
-[`merge-session-view.test.ts`](apps/web/hooks/merge-session-view.test.ts). Across several servers the
-tiebreak would need a real sequence number rather than a clock.
+1. **Did the session get written to?** Every write bumps `session.version`. A higher version is
+   always newer.
+2. **If the version is unchanged, did anything else about the view change?** A price change is the
+   listing changing, not the session — so it doesn't bump the version. In that case, whichever
+   update has the later `serverTime` wins.
+
+Both checks are necessary: version alone would ignore every price change, since they all arrive at
+the same version; timestamp alone could let a resent update walk a *completed* checkout back to
+`active`, turning a confirmation screen back into a buy button. Both are pinned in
+[`merge-session-view.test.ts`](apps/web/hooks/merge-session-view.test.ts). This timestamp
+comparison only works because there's one server; across several servers the tiebreak would need a
+real sequence number instead of a clock.
 
 ---
 
@@ -232,49 +208,11 @@ period later. In Redis that would be an `EXPIRE` set the moment the session fini
 
 ---
 
-## Web performance: what appears before hydration
-
-Measured on `/checkout/[id]` against `next build && next start`, warm, five runs:
-
-| | |
-| --- | --- |
-| **Time to first byte** | **~13 ms** — page, price, seats, countdown |
-| Stream complete | ~261 ms (the delivery panel deliberately takes 250 ms) |
-| HTML | 22.5 KB · 8.3 KB gzipped |
-| First Load JS, `/checkout/[id]` | 134 KB |
-
-That gap *is* the streaming story: the page is out of the door while a slow secondary panel resolves
-behind a Suspense boundary. In the first HTML: event, venue, section and row, itemized price, the
-total, any drift banner, and a countdown already reading `9:59` — with the submit button rendered
-*enabled*, inside a real `<form>` carrying hidden `quoteHash` and `idempotencyKey` fields.
-
-**The countdown is right before any JavaScript runs.** `useState` plus a `useEffect` timer would
-render `--:--` until the page hydrates, and on a checkout page the timer is the whole point.
-[`Countdown`](apps/web/components/countdown.tsx) uses `useSyncExternalStore`, whose
-`getServerSnapshot` React calls both when rendering on the server *and* while hydrating, before
-switching to `getSnapshot`: the first HTML carries a real number, and hydration matches it
-automatically rather than needing `suppressHydrationWarning`.
-[`countdown.test.tsx`](apps/web/components/countdown.test.tsx) pins this through `renderToString` in
-plain Node, with no fake browser environment — in a browser environment the test could pass while
-the server still sent an empty page.
-
-**Checkout works with JavaScript disabled.** Completing, accepting a price change and extending are
-plain form POSTs to Server Actions; client components only add pending states on top. It is also why
-the forms carry a server-generated `idempotencyKey` — with no JS there is no button to disable, so a
-double-click posts twice with one key.
-
-Layout is reserved for content that has not arrived yet, because a page that shifts under someone's
-thumb on a checkout is a mis-tap that buys the wrong thing. Caching matches how fast each thing
-changes: `/checkout/[id]` is `force-dynamic`, the event page is
-`revalidate = 30` because it carries prices, and the index — names, venues, dates — is `60`.
-
----
-
 ## API
 
 ```
 POST   /api/checkout/sessions                  → 201 view
-GET    /api/checkout/sessions/:id              → 200 view   (200 even when terminal)
+GET    /api/checkout/sessions/:id              → 200 view
 POST   /api/checkout/sessions/:id/acknowledge    quoteHash
 POST   /api/checkout/sessions/:id/extend
 POST   /api/checkout/sessions/:id/complete       quoteHash + Idempotency-Key (required)
@@ -283,45 +221,10 @@ GET    /api/checkout/sessions/:id/events         SSE, honors Last-Event-ID
 POST   /api/_scenario/*                          dev only
 ```
 
-**`GET /:id` returns 200 for expired and canceled sessions, not 404/410.** A device picking the
-checkout back up needs the event, seats and current price to show *"that expired — those seats are
-still available, start again"*; a 404 leaves a scanned link with nowhere to go. Every 4xx likewise
-carries the current view, so a client refused with a 409 can update from that same response instead
-of making a second request.
-
-**There is no `If-Match`.** The obvious design accepts `If-Match: <session version>` on every write,
-and no client can actually use it: `GET /sessions/:id` records that a surface looked, which is itself
-a write, so opening the checkout on a phone advances the version the laptop is holding. A
-precondition that someone *glancing at their other screen* invalidates produces 409s that mean
-nothing to the fan. Each write instead guards the thing actually at risk — `quoteHash`, the
-completion lock, `Idempotency-Key` — and for the same reason, a write that loses the version check
-returns the state machine's answer rather than `VERSION_CONFLICT`.
-
 ---
 
-## Instrumenting for conversion
 
-A standard conversion funnel tells you sessions converted at N%. It cannot tell you whether the fan
-who switched devices converted better than the fan who didn't, which is the question this feature is
-built to answer. So the handoff has to be recorded directly rather than inferred later from page
-views. Three events go through [`AnalyticsSink`](apps/api/src/ports/analytics.ts) today:
-`session.resumed` carries `fromSurface`, `toSurface`, `gapSeconds` and `viaDeepLink`;
-`checkout.completed` carries `surfaceCount`; `duplicate.blocked` fires from both guards that stop a
-second order. They are emitted server-side from `CheckoutService`, and asserted in the cross-surface
-and double-completion tests, so they cannot quietly stop firing.
-
-Those three support the measures worth having:
-
-- **Single- vs multi-surface conversion** — the whole argument. A cross-device checkout is one that
-  survived an interruption; without continuity most are lost, so the multi-surface rate *not
-  collapsing* is the evidence the feature earns its complexity.
-- **Continuity rate** — completed sessions touching ≥2 surfaces ÷ *distinct sessions* that reached a
-  second surface. Dividing by resume events would measure refreshes.
-- **Drift-shown → drift-accepted** — what a price rise costs at the last step.
-- **Median resume gap** — tells you directly how long the session deadline should be.
-- **Duplicates blocked** — should be non-zero; if it is always zero the guard is untested.
-
-### Where the events should go
+## Analytics
 
 **Product analytics (Mixpanel, PostHog).** Funnels, retention and cohorts with no pipeline to run,
 and a PM can ask a new question without an engineer. But a client-side library loses events to ad
@@ -334,64 +237,15 @@ vendor's heuristic as much as the feature.
 **Our own capture endpoint → Pub/Sub → BigQuery.** Emitted server-side, so nothing is blocked and
 there is no guessing which device belongs to which person — the session id already links them, which
 is the point of the whole design. It lands in the same warehouse as orders, listings and payments, so
-"did multi-surface sessions convert better" is one SQL join rather than a vendor export. Pub/Sub
-keeps the write off the request path, so an analytics outage cannot slow a checkout. The costs are
-real: retention, schema changes, backfills and personal-data policy all become ours, and there is no
-funnel UI — Looker or Metabase still has to sit on top, so "no vendor" is not quite honest.
+"did multi-surface sessions convert better" is one SQL join rather than a vendor export.
 
 **Where I'd land:** both, split by whether the number has to agree with money. Product analytics for
 exploratory funnels, where being able to ask quickly beats being complete and some loss is
 tolerable. The warehouse stream for conversion rate, duplicates blocked and drift accepted — those
-have to match the orders table exactly. Emitting everything through one interface makes sending to
-both a wiring change in `container.ts` rather than a code change.
+have to match the orders table exactly.
 
 ---
 
-## Tests
-
-Time comes from an injected `Clock`, so a ten-minute deadline is exercised by advancing a fake clock
-rather than waiting.
-
-- **[`checkout-machine.test.ts`](apps/api/src/domain/checkout-machine.test.ts)** — the transition
-  table as a data-driven matrix, plus the price-safety rules. Pure function: no server, no store.
-- **[`checkout.integration.test.ts`](apps/api/src/routes/checkout.integration.test.ts)** — the full
-  flow over real HTTP: cross-surface handoff, `Promise.all` double-completion producing exactly one
-  order, idempotent replay, key reuse, drift → 409 → acknowledge → complete, inventory vanishing
-  mid-authorization, decline-then-retry, pending authorization, lazy and swept expiry, retention.
-  Two boundaries worth singling out: a purchase landing a hair after 0:00 still completes, and two
-  fans racing for the last seats leave one order and no stranded authorization.
-- **[`event-bus.test.ts`](apps/api/src/stores/event-bus.test.ts)** — catching a reconnected client
-  up on what it missed, and the buffer staying capped.
-  **[`merge-session-view.test.ts`](apps/web/hooks/merge-session-view.test.ts)** — the merge the
-  update handler runs, over full views parsed by the real schema.
-- **[`countdown.test.tsx`](apps/web/components/countdown.test.tsx)** — what the server renders before
-  any JavaScript runs: a real duration, the server's number rather than a wrongly-set device's, and
-  `0:00` rather than negative time.
-
----
-
-## Tradeoffs
-
-**No inventory hold** — argued above; a domain judgment, not a shortcut, and it makes the sold-out
-path a first-class demo rather than a hidden branch.
-
-**In-memory everything.** The interfaces are shaped for the real thing: `putIfVersion` → a small
-Redis Lua script, `SessionEventBus` → Redis pub/sub plus a capped stream, orders →
-`UNIQUE (session_id)`.
-
-**The API runs from source under `tsx`; only the web app has a build step.** `@gametime/contracts`
-ships TypeScript rather than compiled output, which Next transpiles and `tsx` executes directly —
-convenient for a prototype where both ends move together, and the thing to change first for a real
-deployment. `pnpm build` is therefore `next build`, which is what the numbers above are measured
-against.
-
-**A simulated mobile surface, not a native app.** A real Expo client would be a stronger answer to
-"cross-surface", but it would have starved the state model and the tests, which is where the risk in
-this problem lives. The mobile route is still a genuine second surface — separate route, separate
-presentation, same API, reachable by deep link.
-
-**Dropped Redux and shadcn/ui**, both in my original `PLANNING.md` stack. There turned out to be no
-client-only global state worth a store — the session is server state pushed over SSE.
 
 ### Out of scope
 
@@ -399,30 +253,15 @@ Left out on purpose, to keep this a focused slice rather than a shallow checkout
 
 - **Payment** — stubbed behind a `PaymentProvider` interface with approve / decline / pending / error
   modes. No forms, no real payment processor.
-- **Auth** — the consequence is that the session id is a bearer token. Real deployment binds the
-  session to an account and signs the deep link.
-- **Persistence, message broker, audit log** — all in-memory; the store interfaces make the swap
-  mechanical.
-- **Analytics aggregation** — the events are emitted against a port with a console sink; the
-  pipeline, warehouse and dashboards on the other end of it are not here. Building a funnel UI
-  nothing queries would be scope without a consumer.
+- **Auth** — In a real product, we would create a tokenized version of the checkout id. For an unauthenticated user, this works fine for loading the checkout session, but we would exclude any user-specific data (name, address, billing). For an authenticated user, the second device would send our JWT auth token in a header and our backend would validate that the session belongs to that user. 
+- **Message broker** — Thinking of things like audit logs, moving data to a data warehouse, and notifications such as order confirmation. We want to use something like pub/sub or Kafka to offload this work to other services or processes.
+- **Analytics aggregation** — the events are in the codebase as an example. We'd most likely use a third-party service like Posthog or Mixpanel for detailed frontend user behavior, while still using pub/sub to BigQuery for other metrics. See the ""
+- **Data Storage** - In a real product I would use Postgres as my main database and Redis for checkout sessions and transaction locks. We would want to look into proper indexing, using TTLs, redis as a cache layer, etc.
+- **Event Search** - For a product at the scale of Gametime, I would want to use something like ElasticSearch for the events page. This assumes I need complex querying and search capability, which I think we would need.
+- **Multiple Servers** - If our api service is horizontally scaled, we need to revise how SSE works. One device can be connected to server A while the other is connected to server B. With something like pub/sub, we can ensure both servers are broadcasting SSE to the appropriate connections. 
+- **Accessibility** - We would need to do a more thorough review or use third-party tools.
+- **Time Issues** - Handling different timezones and device time issues.
 
-## What I'd do differently with more time
-
-1. **Playwright over two browser contexts.** The double-completion race is covered at the API level,
-   but the *UI* behaviour — one surface flipping to "completing on your other device" while the other
-   lands on a confirmation — is asserted by hand today. That is the test I most want.
-2. **Bind sessions to accounts** and sign deep links, closing the bearer-token gap.
-3. **Move expiry off the sweeper.** A 1-second interval scanning every session is O(n) per tick; a
-   Redis sorted set keyed on `expiresAt` is the real shape.
-4. **Reconcile pending authorizations on startup.** If the process dies while a session is
-   `completing` it stays locked forever — the one durability hole I know is open.
-5. **Cover the SSE route itself.** `SessionEventBus` is tested in isolation, but header parsing,
-   framing and disconnect cleanup are only exercised by hand through `/demo`.
-6. **Accessibility pass.** Live regions are wired for the countdown and drift banner, but I have not
-   run a screen reader over the handoff flow.
-
----
 
 ## Agent Usage
 

@@ -28,10 +28,10 @@ export interface Container {
 }
 
 export function createContainer(
-  options: { clock?: Clock; analytics?: AnalyticsSink } = {},
+  options: { clock?: Clock; analytics?: AnalyticsSink; unlimitedInventoryListingIds?: string[] } = {},
 ): Container {
   const clock = options.clock ?? new SystemClock();
-  const inventory = new InMemoryInventoryProvider();
+  const inventory = new InMemoryInventoryProvider(new Set(options.unlimitedInventoryListingIds));
   const payments = new FakePaymentProvider();
   const analytics = options.analytics ?? new ConsoleAnalyticsSink();
   const sessions = new InMemorySessionStore();

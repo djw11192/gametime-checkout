@@ -1,9 +1,12 @@
+import { DEMO_LISTING_ID } from "@gametime/contracts";
 import { createApp } from "./app.js";
 import { createContainer } from "./container.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
 
-const container = createContainer();
+const container = createContainer({
+  unlimitedInventoryListingIds: process.env.NODE_ENV !== "production" ? [DEMO_LISTING_ID] : [],
+});
 const app = createApp(container);
 const stopSweeper = container.startSweeper();
 

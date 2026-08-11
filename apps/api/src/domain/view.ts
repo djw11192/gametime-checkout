@@ -47,9 +47,10 @@ function computeDrift(
   listing: Listing | null,
   liveQuote: Quote | null,
 ): Drift[] {
-  // Once the order exists, the fan has been charged and there is nothing they
-  // can do about a later price move. Telling them about it is just noise.
-  if (isTerminal(session.status)) return [];
+  // Once the charge is in flight the amount is pinned to `acceptedQuote`, so a
+  // later price move cannot reach the fan and there is nothing for them to act
+  // on. The same holds after the order exists. Telling them either way is noise.
+  if (session.status === "completing" || isTerminal(session.status)) return [];
   if (!listing || !liveQuote || listing.availableQuantity <= 0) {
     return [{ type: "inventory_unavailable" }];
   }

@@ -338,6 +338,13 @@ export class CheckoutService {
       });
 
       const settled = await this.settle(session.id, { kind: "succeeded", orderId: order.id });
+
+      // The seats just left the market. Every other fan holding a checkout on
+      // this listing should hear it from us now, rather than from a 409 when
+      // they press buy. Done after `settle` so this session is already terminal
+      // and skipped by the filter below.
+      await this.notifyListingChanged(session.listingId);
+
       return { view: await this.viewOf(settled), order, httpStatus: 201 };
     } finally {
       if (!orderPlaced && authorizationId) await payments.void(authorizationId);

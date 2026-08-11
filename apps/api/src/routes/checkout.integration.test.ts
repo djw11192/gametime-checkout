@@ -7,6 +7,7 @@ import {
   SESSION_TTL_MS,
   TERMINAL_RETENTION_MS,
   type CheckoutSessionView,
+  type SseEnvelope,
 } from "@gametime/contracts";
 import { createApp } from "../app";
 import { createContainer, type Container } from "../container";
@@ -69,6 +70,29 @@ const setInventory = (availableQuantity: number) =>
 const setPaymentMode = (mode: string, latencyMs?: number) =>
   request(app).post("/api/_scenario/payment-mode").send({ mode, latencyMs }).expect(200);
 
+/**
+ * Everything pushed to one session's stream, in order. Subscribing to the bus
+ * directly rather than over HTTP — the wire format has its own tests in
+ * `sse.integration.test.ts`; what matters here is which events a flow produces.
+ */
+function record(sessionId: string): SseEnvelope[] {
+  const pushed: SseEnvelope[] = [];
+  container.bus.subscribe(sessionId, (envelope) => pushed.push(envelope));
+  return pushed;
+}
+
+/**
+ * Wait until a completion genuinely holds the lock, rather than guessing with a
+ * sleep, so a race always plays out the same way.
+ */
+async function untilCompleting(sessionId: string) {
+  for (let i = 0; i < 200; i++) {
+    if ((await container.sessions.get(sessionId))?.status === "completing") return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error("the completion never took the lock");
+}
+
 /* ── cross-surface handoff ────────────────────────────────────────────────── */
 
 describe("cross-surface continuity", () => {
@@ -130,6 +154,7 @@ describe("duplicate order prevention", () => {
   it("two devices completing simultaneously produce exactly one order", async () => {
     const created = await createSession("web");
     const hash = created.liveQuote!.hash;
+    const pushed = record(created.session.id);
 
     // A real authorization window for the two requests to race inside.
     await setPaymentMode("slow", 120);
@@ -157,6 +182,11 @@ describe("duplicate order prevention", () => {
       type: "duplicate.blocked",
       sessionId: created.session.id,
     });
+
+    // A third tab sends no request of its own, so the 409 above never reaches
+    // it. Everything it knows arrives on the stream.
+    expect(pushed.map((e) => e.type)).toEqual(["completion.started", "completion.succeeded"]);
+    expect(pushed[0]?.view.session.completion?.startedBySurface).toBeTruthy();
   });
 
   it("replaying the same Idempotency-Key returns the same order without charging again", async () => {
@@ -255,6 +285,56 @@ describe("price changes while the fan is away", () => {
   });
 });
 
+/* ── price change during the payment ──────────────────────────────────────── */
+
+describe("price changes while the card is being authorized", () => {
+  it("charges what the fan agreed to, and says nothing about the new price", async () => {
+    const created = await createSession();
+    const hash = created.liveQuote!.hash;
+    const agreedTotal = created.liveQuote!.totalCents;
+    const pushed = record(created.session.id);
+    await setPaymentMode("slow", 80);
+
+    const inFlight = complete(created.session.id, { hash, key: "key-repriced" }).then((r) => r);
+    await untilCompleting(created.session.id);
+
+    // The seller raises their price with the charge already in flight.
+    await setPrice(3_000);
+
+    const res = await inFlight;
+    expect(res.status).toBe(201);
+    // The amount was pinned when the lock was taken, so the move cannot reach it.
+    expect(res.body.order.totalCents).toBe(agreedTotal);
+
+    // And the fan is not shown a price banner over a spinner. There is nothing
+    // they could do with it, and it reads as though they are being charged more.
+    const midPayment = pushed.find((e) => e.type === "quote.changed");
+    expect(midPayment?.view.drift).toEqual([]);
+    expect(midPayment?.view.blockers).toContain("completion_in_progress");
+  });
+
+  it("shows the new price once a decline hands the checkout back", async () => {
+    // The other half of the rule above: the change is held back, not dropped.
+    // The moment the fan can act on it again, they are told.
+    const created = await createSession();
+    const hash = created.liveQuote!.hash;
+    await setPaymentMode("decline", 80);
+
+    const inFlight = complete(created.session.id, { hash, key: "key-declined" }).then((r) => r);
+    await untilCompleting(created.session.id);
+    await setPrice(3_000);
+
+    const res = await inFlight;
+    expect(res.status).toBe(200);
+
+    const view = res.body.session as CheckoutSessionView;
+    expect(view.session.status).toBe("active");
+    expect(view.drift[0]).toMatchObject({ type: "price_increased", deltaCents: 6_900 });
+    expect(view.blockers).toContain("quote_unacknowledged");
+    expect(view.canComplete).toBe(false);
+  });
+});
+
 /* ── inventory ────────────────────────────────────────────────────────────── */
 
 describe("inventory disappearing", () => {
@@ -293,14 +373,7 @@ describe("inventory disappearing", () => {
     // Calling `.then()` is what actually sends a supertest request. Just
     // assigning it does nothing, and the "race" would quietly run in sequence.
     const inFlight = complete(created.session.id, { hash, key: "key-race" }).then((r) => r);
-
-    // Wait until the lock is genuinely held rather than guessing with a sleep,
-    // so this race always plays out the same way.
-    for (let i = 0; i < 200; i++) {
-      if ((await container.sessions.get(created.session.id))?.status === "completing") break;
-      await new Promise((resolve) => setTimeout(resolve, 2));
-    }
-    expect((await container.sessions.get(created.session.id))?.status).toBe("completing");
+    await untilCompleting(created.session.id);
 
     // The seller's tickets go while we are talking to the payment provider.
     await setInventory(0);
@@ -334,6 +407,21 @@ describe("inventory disappearing", () => {
     expect(res.body.error.code).toBe("INVENTORY_UNAVAILABLE");
     expect(container.orders.count()).toBe(0);
     expect(container.payments.voidCount()).toBe(0);
+  });
+
+  it("tells the other fans on the listing as soon as the seats are gone", async () => {
+    // Without this the other fan finds out by pressing buy and being refused,
+    // which is the worst possible moment to learn it.
+    await setInventory(2);
+    const [buyer, watcher] = await Promise.all([createSession("web"), createSession("mobile")]);
+    const pushed = record(watcher.session.id);
+
+    await complete(buyer.session.id, { hash: buyer.liveQuote!.hash, key: "key-buyer" }).expect(201);
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.type).toBe("quote.changed");
+    expect(pushed[0]?.view.drift).toEqual([{ type: "inventory_unavailable" }]);
+    expect(pushed[0]?.view.canComplete).toBe(false);
   });
 
   it("two fans racing for the last pair leave exactly one order and no stranded hold", async () => {

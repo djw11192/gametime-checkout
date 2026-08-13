@@ -6,7 +6,7 @@ duplicate orders, stale holds, or a price that quietly changed underneath them.
 ```bash
 pnpm install
 pnpm dev      # API on :4000, web on :3000
-pnpm test     # 67 tests, ~1s, zero sleeps
+pnpm test
 ```
 
 Open **http://localhost:3000/demo** — one session on two surfaces, with the levers to move the price,
@@ -147,19 +147,12 @@ Every quote carries a `hash` over the priced fields, so comparing hashes answers
 
 ### Stale inventory
 
-**There is deliberately no hard hold.** Gametime is a secondary marketplace — listings are
-third-party inventory that can sell on another channel at any moment. Locking seats like a primary
-vendor would misrepresent the domain and hide the exact failure continuity has to handle: the
-tickets a fan is looking at can stop existing while they're away.
+**There is deliberately no hard hold.** Gametime is a secondary marketplace — listings are third-party inventory that can sell on another channel at any moment. Locking seats like a primary
+vendor would misrepresent the domain and hide the exact failure continuity has to handle: the tickets a fan is looking at can stop existing while they're away.
 
-Inventory is checked three times, each catching something different: on read (for the banner), when
-the completion lock is taken (the last point to refuse *before spending money*), and after
-authorization but before the order is written (the only authoritative check).
+Inventory is checked three times, each catching something different: on read (for the banner), when the completion lock is taken (the last point to refuse *before spending money*), and after authorization but before the order is written (the only authoritative check).
 
-**No hold means someone has to pay for the failure — here, that's releasing the charge.** Two fans
-can both be authorized for the last pair of seats, and the loser has a live hold on their card by
-the time we find out. `finalizeOrder` guarantees *any exit that doesn't produce an order releases
-that hold*, via one `finally` over the whole body so a future exit path can't silently skip it.
+**No hold means someone has to pay for the failure — here, that's releasing the charge.** Two fans can both be authorized for the last pair of seats, and the loser has a live hold on their card by the time we find out. `finalizeOrder` guarantees *any exit that doesn't produce an order releases that hold*, via one `finally` over the whole body so a future exit path can't silently skip it. This auth hold and void scenario can be avoided in a real production product by using a lock on the actual tickets. See *what I'd do differently* section for more details.
 
 ### Expiration
 
@@ -212,7 +205,7 @@ POST   /api/_scenario/*                          dev only
   (`putIfVersion`, idempotency claims) are written to map directly onto what Redis gives for free
   (`EXPIRE`, Lua scripts) — see *What I'd do differently* → Data storage.
 - **NextJS over React + Vite** - chose NextJS to address the prompt more closely at expense of faster dev/builds and simpler mental model.
-- **SSE, not WebSockets** — the right call for one-way updates today, but it caps this at a single server; scaling out needs a pub/sub fan-out layer (see *The live channel*).
+- **SSE, not WebSockets** — the right call for one-way updates today, but it caps this at a single server; scaling out needs a pub/sub fan-out layer (see *The live channel*). If we ever want bi-directional data flow we'd need to switch to websockets.
 - **No hard hold on inventory** — matches how a secondary marketplace actually behaves, at the cost of needing release-on-failure logic for holds that lose the race (see *Stale inventory*).
 - **Timestamp tiebreak assumes one server clock** — multiple servers would need a real sequence number instead (see *Picking the newest update*).
 - **Short retention window, not permanent storage** — keeps memory bounded, but a completed session is only viewable for a limited time afterward (see *Retention*).
@@ -248,9 +241,7 @@ doubles as the "with more time" list:
 
 - **Payment** — stubbed behind a `PaymentProvider` interface with approve / decline / pending /
   error modes. No forms, no real processor.
-- **Auth** — a tokenized version of the checkout id. Unauthenticated, that's enough to load the
-  session while excluding user-specific data (name, address, billing). Authenticated, the second
-  device sends our JWT in a header and the backend validates the session belongs to that user.
+- **Auth** — a tokenized version of the checkout id. Unauthenticated, that's enough to load the session while excluding user-specific data (name, address, billing). Authenticated, the second device sends a JWT in a header and the backend validates the session belongs to that user. URL sharing would not be required when supporting authenticated users, which would be a better user experience.
 - **Message broker** — pub/sub or Kafka to offload audit logs, warehouse writes, and notifications
   (order confirmation) to other processes instead of doing them inline.
 - **Analytics aggregation** — the events are in the codebase as an example. In practice: a
@@ -258,13 +249,14 @@ doubles as the "with more time" list:
   that need to match the orders table (see *Analytics* above).
 - **Data storage** — Postgres as the primary database, Redis for checkout sessions; with
   real indexing, TTLs, and Redis as a cache layer.
+- **Inventory lock** — I would use Redis to do a very short-lived lock on the actual tickets. This would handle race conditions before ever touching payment logic, instead of today's design where two racing sessions can both authorize a card and the loser's hold gets voided after the fact.
 - **Event search** — something like Elasticsearch for the events page, once it needs real querying
   and search rather than a simple list.
 - **Multiple servers** — horizontally scaling the API means one device can be on server A while the
   other is on server B; SSE needs pub/sub to broadcast across both.
 - **Accessibility** — a proper audit, likely with third-party tooling.
 - **Time zones and device clocks** — handling both correctly across surfaces.
-- **More testing** - I kept tests simple and tried focusing on some of the key scenarios. I could be more thorough and write e2e tests
+- **More testing** - I kept tests simple and tried focusing on some of the key scenarios. I could be more thorough and write e2e tests.
 
 
 ## Agent Usage
